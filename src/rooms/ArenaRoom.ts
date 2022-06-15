@@ -81,7 +81,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         }
       }
       else {
-        player.anim = 'sword-air';
+        player.anim = 'sword-flip';
       }
     });
 
