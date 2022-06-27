@@ -68,6 +68,9 @@ export class Player extends Schema {
   @type('number')
   velX: number = 0;
 
+  @type('boolean')
+  isDead: boolean = false;
+
 
   constructor(playerName: string, id: string, width: number, height: number) {
     super();
