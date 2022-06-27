@@ -47,93 +47,101 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       const {direction} = data;
       const {sessionId: playerID} = client;
       const player = this.state.players.get(playerID);
+      const hasSword = (player.animPrefix === 'sword');
 
-      // Get enemy
-      const enemyID = this.getOtherPlayerID(playerID);
-      const enemy = this.state.players.get(enemyID);
+      if (hasSword) {
+        // Get enemy
+        const enemyID = this.getOtherPlayerID(playerID);
+        const enemy = this.state.players.get(enemyID);
+  
+        // Check for overlaps w/ atkBodies
+        let isAtkBodiesTouching = false;
 
-      // Check for overlaps w/ atkBodies
-      const pAtkBody = this.attackBodies[playerID];
-      const eAtkBody = this.attackBodies[enemyID];
-      const pAtkLeft = pAtkBody.x;
-      const pAtkRight = (pAtkBody.x + pAtkBody.width);
-      const eAtkLeft = eAtkBody.x;
-      const eAtkRight = (eAtkBody.x + eAtkBody.width);
-
-      const isAtkBodiesTouching = (
-        pAtkLeft < eAtkRight && pAtkLeft > eAtkLeft ||
-        pAtkRight < eAtkRight && pAtkRight > eAtkLeft
-      );
-
-      let doSpawnSword = false;
-
-      if (direction === 'up') {
-        if (player.level === 'low') {
-          player.level = 'mid';
-
-          if (isAtkBodiesTouching && enemy.level === 'mid') {
-            enemy.animPrefix = 'nosword';
-            doSpawnSword = true;
+        if (enemyID !== '') {
+          const pAtkBody = this.attackBodies[playerID];
+          const eAtkBody = this.attackBodies[enemyID];
+          const pAtkLeft = pAtkBody.x;
+          const pAtkRight = (pAtkBody.x + pAtkBody.width);
+          const eAtkLeft = eAtkBody.x;
+          const eAtkRight = (eAtkBody.x + eAtkBody.width);
+    
+          isAtkBodiesTouching = (
+            pAtkLeft < eAtkRight && pAtkLeft > eAtkLeft ||
+            pAtkRight < eAtkRight && pAtkRight > eAtkLeft
+          );
+        }
+  
+        let doSpawnSword = false;
+  
+        if (direction === 'up') {
+          if (player.level === 'low') {
+            player.level = 'mid';
+  
+            if (isAtkBodiesTouching && enemy.level === 'mid') {
+              enemy.animPrefix = 'nosword';
+              doSpawnSword = true;
+            }
+          }
+          else if (player.level === 'mid') {
+            player.level = 'high';
+  
+            if (isAtkBodiesTouching && enemy.level === 'high') {
+              enemy.animPrefix = 'nosword';
+              doSpawnSword = true;
+            }
           }
         }
-        else if (player.level === 'mid') {
-          player.level = 'high';
-
-          if (isAtkBodiesTouching && enemy.level === 'high') {
-            enemy.animPrefix = 'nosword';
-            doSpawnSword = true;
+        else if (direction === 'down') {
+          if (player.level === 'high') {
+            player.level = 'mid';
+  
+            if (isAtkBodiesTouching && enemy.level === 'mid') {
+              enemy.animPrefix = 'nosword';
+              doSpawnSword = true;
+            }
+          }
+          else if (player.level === 'mid') {
+            player.level = 'low';
+  
+            if (isAtkBodiesTouching && enemy.level === 'low') {
+              enemy.animPrefix = 'nosword';
+              doSpawnSword = true;
+            }
           }
         }
-      }
-      else if (direction === 'down') {
-        if (player.level === 'high') {
-          player.level = 'mid';
-
-          if (isAtkBodiesTouching && enemy.level === 'mid') {
-            enemy.animPrefix = 'nosword';
-            doSpawnSword = true;
-          }
+  
+        if (doSpawnSword) {
+          const swordID = `sword_${enemyID}`;
+          // const swordX = (playerBody.x + (player.flipX ? 25 : -25));
+          const swordX = (enemy.x + (enemy.flipX ? -30 : 30));
+          // const swordY = (playerBody.y - playerBody.height + 10);
+          const swordY = (enemy.y - enemy.height + 25);
+          const swordW = 25;
+          const swordH = 6;
+          const swordVelocity = 200;
+          
+          // Spawn a new sword in state
+          this.state.objects.set(swordID, new AbstractObject(
+            swordID,
+            swordX,
+            swordY,
+            'sword'
+          ));
+  
+          const sword = this.state.objects.get(swordID);
+  
+          // Flip sword according to player
+          sword.flipX = enemy.flipX;
+  
+          // Spawn a new sword physics body
+          this.physicsBodies[swordID] = this.physics.add.body(swordX, swordY, swordW, swordH);
+  
+          // Set sword body velocity (*(+/-)1(flipX?))
+          this.physicsBodies[swordID].setVelocityY((direction === 'up' ? -1 : 1) * swordVelocity);
+  
+          // Add collider w/ map so sword will land
+          this.physics.add.collider(this.physicsBodies[swordID], this.physicsMap);
         }
-        else if (player.level === 'mid') {
-          player.level = 'low';
-
-          if (isAtkBodiesTouching && enemy.level === 'low') {
-            enemy.animPrefix = 'nosword';
-            doSpawnSword = true;
-          }
-        }
-      }
-
-      if (doSpawnSword) {
-        const swordID = `sword_${enemyID}`;
-        // const swordX = (playerBody.x + (player.flipX ? 25 : -25));
-        const swordX = (enemy.x + (enemy.flipX ? -30 : 30));
-        // const swordY = (playerBody.y - playerBody.height + 10);
-        const swordY = (enemy.y - enemy.height + 25);
-        const swordW = 25;
-        const swordH = 6;
-        const swordVelocity = 200;
-        
-        // Spawn a new sword in state
-        this.state.objects.set(swordID, new AbstractObject(
-          swordX,
-          swordY,
-          'sword'
-        ));
-
-        const sword = this.state.objects.get(swordID);
-
-        // Flip sword according to player
-        sword.flipX = enemy.flipX;
-
-        // Spawn a new sword physics body
-        this.physicsBodies[swordID] = this.physics.add.body(swordX, swordY, swordW, swordH);
-
-        // Set sword body velocity (*(+/-)1(flipX?))
-        this.physicsBodies[swordID].setVelocityY((direction === 'up' ? -1 : 1) * swordVelocity);
-
-        // Add collider w/ map so sword will land
-        this.physics.add.collider(this.physicsBodies[swordID], this.physicsMap);
       }
     });
 
@@ -160,6 +168,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         
         // Spawn a new sword in state
         this.state.objects.set(swordID, new AbstractObject(
+          swordID,
           swordX,
           swordY,
           'sword'
@@ -182,9 +191,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
         // Set animPrefix to nosword (done in anim code below)
       }
-      else if (hasSword && doAttack) {
+      else if (doAttack) {
         this.broadcast('player-attack', {
           playerID: client.sessionId,
+          hasSword,
           level: player.level
         });
 

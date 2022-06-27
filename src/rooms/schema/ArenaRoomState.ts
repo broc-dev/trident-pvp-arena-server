@@ -1,6 +1,9 @@
 import { Schema, MapSchema, type } from "@colyseus/schema";
 
 export class AbstractObject extends Schema {
+  @type('string')
+  id: string = '';
+
   @type('number')
   x: number = 0;
 
@@ -13,8 +16,9 @@ export class AbstractObject extends Schema {
   @type('string')
   texture: string = '';
 
-  constructor(x: number, y: number, texture: string) {
+  constructor(id: string, x: number, y: number, texture: string) {
     super();
+    this.id = id;
     this.x = x;
     this.y = y;
     this.texture = texture;
