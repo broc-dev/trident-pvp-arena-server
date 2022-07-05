@@ -1,15 +1,26 @@
 import { Room, Client } from "colyseus";
-import { AbstractObject, ArenaRoomState, Player } from "./schema/ArenaRoomState";
+import { AbstractObject, ArenaRoomState, HitboxDebug, Player } from "./schema/ArenaRoomState";
 import { ArcadePhysics } from 'arcade-physics';
 import { Body } from 'arcade-physics/lib/physics/arcade/Body';
 import { StaticBody } from "arcade-physics/lib/physics/arcade/StaticBody";
 import arena from "../maps/arena";
 
+const DEBUG_ENABLED = true; // set to false in production build
+
 const PLAYER_BODY = {
-  width: 32,
-  height: 64,
+  width: 20,
+  height: 46,
   originX: 0.5,
   originY: 1
+};
+
+const OBJECT_BODIES: Record<string, any> = {
+  'sword': {
+    width: 25,
+    height: 6,
+    originX: 0,
+    originY: 0.5
+  }
 };
 
 const FPS = 60;
@@ -19,15 +30,24 @@ const ACCELERATION = 10;
 
 const PLAYER_JUMP_FORCE = 300;
 
+const ANIM_STAB_FULL_REACH_DELAY = 168; // MS delay in anim before full reach
+
 export class ArenaRoom extends Room<ArenaRoomState> {
 
   maxClients: number = 2;
   physicsBodies: Record<string, Body> = {};
-  attackBodies: Record<string, Body> = {};
   playerColliders: Record<string, any> = {};
   physics: ArcadePhysics = null;
   physicsTick: number = 0;
   physicsMap: Array<StaticBody> = [];
+
+  createPhysicsBody(id: string, x: number, y: number, width: number, height: number) {
+    this.physicsBodies[id] = this.physics.add.body(x, y, width, height);
+    
+    if (DEBUG_ENABLED) {
+      this.state.hitboxDebug.set(id, new HitboxDebug(id, x, y, width, height));
+    }
+  }
 
   getOtherPlayerID(sessionId: string): string {
     let otherPlayerID = '';
@@ -54,6 +74,19 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     player.isDead = true;
   }
 
+  // queueAttack(playerID: string) {
+  //   this.clock.setTimeout(() => {
+  //     const player = this.state.players.get(playerID);
+  //     const enemyID = this.getOtherPlayerID(playerID);
+  //     const enemy = this.state.players.get(enemyID);
+
+  //     const xDiff = Math.abs(player.x - enemy.x);
+
+      
+
+  //   }, ANIM_STAB_FULL_REACH_DELAY);
+  // }
+
   onCreate (options: any) {
     this.setState(new ArenaRoomState());
 
@@ -67,94 +100,58 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         // Get enemy
         const enemyID = this.getOtherPlayerID(playerID);
         const enemy = this.state.players.get(enemyID);
-  
-        // Check for overlaps w/ atkBodies
-        let isAtkBodiesTouching = false;
+        const hasEnemyWithSword = (enemyID !== '' && enemy.animPrefix === 'sword');
 
-        if (enemyID !== '') {
-          const pAtkBody = this.attackBodies[playerID];
-          const eAtkBody = this.attackBodies[enemyID];
-          const pAtkLeft = pAtkBody.x;
-          const pAtkRight = (pAtkBody.x + pAtkBody.width);
-          const eAtkLeft = eAtkBody.x;
-          const eAtkRight = (eAtkBody.x + eAtkBody.width);
-    
-          isAtkBodiesTouching = (
-            pAtkLeft < eAtkRight && pAtkLeft > eAtkLeft ||
-            pAtkRight < eAtkRight && pAtkRight > eAtkLeft
-          );
-        }
-  
-        let doSpawnSword = false;
+        // Get swords
+        const playerSword = this.physicsBodies[`sword_${playerID}`];
+        const enemySword = this.physicsBodies[`sword_${enemyID}`];
   
         if (direction === 'up') {
           if (player.level === 'low') {
             player.level = 'mid';
-  
-            if (enemy.animPrefix === 'sword' && isAtkBodiesTouching && enemy.level === 'mid') {
-              enemy.animPrefix = 'nosword';
-              doSpawnSword = true;
-            }
           }
           else if (player.level === 'mid') {
             player.level = 'high';
-  
-            if (enemy.animPrefix === 'sword' && isAtkBodiesTouching && enemy.level === 'high') {
-              enemy.animPrefix = 'nosword';
-              doSpawnSword = true;
-            }
           }
         }
         else if (direction === 'down') {
           if (player.level === 'high') {
             player.level = 'mid';
-  
-            if (enemy.animPrefix === 'sword' && isAtkBodiesTouching && enemy.level === 'mid') {
-              enemy.animPrefix = 'nosword';
-              doSpawnSword = true;
-            }
           }
           else if (player.level === 'mid') {
             player.level = 'low';
-  
-            if (enemy.animPrefix === 'sword' && isAtkBodiesTouching && enemy.level === 'low') {
-              enemy.animPrefix = 'nosword';
-              doSpawnSword = true;
-            }
           }
         }
-  
-        if (doSpawnSword) {
-          const swordID = `sword_${enemyID}`;
-          // const swordX = (playerBody.x + (player.flipX ? 25 : -25));
-          const swordX = (enemy.x + (enemy.flipX ? -30 : 30));
-          // const swordY = (playerBody.y - playerBody.height + 10);
-          const swordY = (enemy.y - enemy.height + 25);
-          const swordW = 25;
-          const swordH = 6;
-          const swordVelocity = 200;
+
+        // Reposition physics body of sword based on new level
+        this.moveHeldSwords();
+
+        if (hasEnemyWithSword) {
+          const areSwordsTouching = this.physics.overlap(playerSword, enemySword, null, null, this);
           
-          // Spawn a new sword in state
-          this.state.objects.set(swordID, new AbstractObject(
-            swordID,
-            swordX,
-            swordY,
-            'sword'
-          ));
-  
-          const sword = this.state.objects.get(swordID);
-  
-          // Flip sword according to player
-          sword.flipX = enemy.flipX;
-  
-          // Spawn a new sword physics body
-          this.physicsBodies[swordID] = this.physics.add.body(swordX, swordY, swordW, swordH);
-  
-          // Set sword body velocity (*(+/-)1(flipX?))
-          this.physicsBodies[swordID].setVelocityY((direction === 'up' ? -1 : 1) * swordVelocity);
-  
-          // Add collider w/ map so sword will land
-          this.physics.add.collider(this.physicsBodies[swordID], this.physicsMap);
+          if (areSwordsTouching) {
+            const swordID = `sword_${enemyID}`;
+            const swordVelocity = 200;
+            const sword = this.state.objects.get(swordID);
+
+            // Disarm enemy
+            enemy.animPrefix = 'nosword';
+            
+            // Set sword texture to active
+            sword.isTextureVisible = true;
+    
+            // Flip sword according to player
+            sword.flipX = enemy.flipX;
+    
+            // Set sword body velocity (*(+/-)1(flipX?))
+            this.physicsBodies[swordID].setVelocityY((direction === 'up' ? -1 : 1) * swordVelocity);
+
+            // Enable gravity on sword
+            this.physicsBodies[swordID].setAllowGravity(true);
+    
+            // Add collider w/ map so sword will land
+            this.physics.add.collider(this.physicsBodies[swordID], this.physicsMap);
+          }
         }
       }
     });
@@ -174,30 +171,18 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   
         if (hasSword && doThrowAttack) {
           const swordID = `sword_${client.sessionId}`;
-          // const swordX = (playerBody.x + (player.flipX ? 25 : -25));
-          const swordX = (player.x + (player.flipX ? -30 : 30));
-          // const swordY = (playerBody.y - playerBody.height + 10);
-          const swordY = (player.y - player.height + 25);
-          const swordW = 25;
-          const swordH = 6;
           const swordVelocity = 400;
-          
-          // Spawn a new sword in state
-          this.state.objects.set(swordID, new AbstractObject(
-            swordID,
-            swordX,
-            swordY,
-            'sword'
-          ));
   
           const sword = this.state.objects.get(swordID);
+
+          // Enable sword texture
+          sword.isTextureVisible = true;
   
           // Flip sword according to player
           sword.flipX = player.flipX;
   
-          // Spawn a new sword physics body
-          this.physicsBodies[swordID] = this.physics.add.body(swordX, swordY, swordW, swordH);
-          this.physicsBodies[swordID].setAllowGravity(false); // Disable gravity when thrown
+          // Disable gravity when thrown
+          this.physicsBodies[swordID].setAllowGravity(false);
   
           // Add overlap calls w/ other player
           const enemyID = this.getOtherPlayerID(client.sessionId);
@@ -370,27 +355,75 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.physics.world.update(this.physicsTick * 1000, 1000 / FPS);
     this.physicsTick++;
 
-    this.syncPhysicsBodies();
+    this.moveHeldSwords();
+    this.syncStateWithPhysics();
+    this.syncHitboxDebug();
   }
 
-  syncPhysicsBodies() {
+  syncHitboxDebug() {
+    this.state.hitboxDebug.forEach((hitbox, id) => {
+      const body = this.physicsBodies[id];
+      hitbox.x = body.x;
+      hitbox.y = body.y;
+    });
+  }
+
+  moveHeldSwords() {
+    this.state.players.forEach((player, playerID) => {
+      const isPlayerHoldingSword = (player.animPrefix === 'sword');
+      const sword = this.state.objects.get(`sword_${playerID}`);
+      const hitboxDebug = this.state.hitboxDebug.get(`sword_${playerID}`);
+
+      hitboxDebug.isActive = sword.isTextureVisible; // If the texture is visible, it means it's been parried or thrown
+
+      if (isPlayerHoldingSword) {
+        const player = this.state.players.get(playerID);
+
+        const isSwordOutAnim = (
+          player.anim.startsWith('sword-idle') ||
+          player.anim.startsWith('sword-forstep') ||
+          player.anim.startsWith('sword-backstep')
+        );
+
+        sword.isActive = isSwordOutAnim;
+        hitboxDebug.isActive = isSwordOutAnim;
+
+        if (isSwordOutAnim) {
+          // Sync / offset sword in idle & stepping anims
+          const playerBody = this.physicsBodies[playerID];
+          const swordBody = this.physicsBodies[`sword_${playerID}`];
+          const playerX = (playerBody.x + (PLAYER_BODY.width * PLAYER_BODY.originX));
+          const playerY = (playerBody.y + (PLAYER_BODY.height * PLAYER_BODY.originY));
+          const flipMod = (player.flipX ? -1 : 1);
+          const flipOffset = (player.flipX ? swordBody.width : 0);
+
+          // WARNING -- MAGIC NUMBERS INCOMING
+          if (player.level === 'low') {
+            swordBody.x = playerX + (10 * flipMod) - flipOffset;
+            swordBody.y = playerY - 20;
+          }
+          else if (player.level === 'mid') {
+            swordBody.x = playerX + (8 * flipMod) - flipOffset;
+            swordBody.y = playerY - 28;
+          }
+          else if (player.level === 'high') {
+            swordBody.x = playerX + (8 * flipMod) - flipOffset;
+            swordBody.y = playerY - 40;
+          }
+        }
+      }
+    });
+  }
+
+  syncStateWithPhysics() {
     this.state.players.forEach((player, sessionId) => {
       const physicsBodyExists = (typeof this.physicsBodies[sessionId] !== 'undefined');
       
       if (physicsBodyExists) {
         const body = this.physicsBodies[sessionId];
-        const attackBodyExists = (typeof this.attackBodies[sessionId] !== 'undefined');
         
         player.x = (body.x + (PLAYER_BODY.width * PLAYER_BODY.originX));
         player.y = (body.y + (PLAYER_BODY.height * PLAYER_BODY.originY));
-
-        if (attackBodyExists) {
-          const atkBody = this.attackBodies[sessionId];
-  
-          // Attack body originX is 0, so offset full width when flipped
-          atkBody.x = ((body.x + (PLAYER_BODY.width * PLAYER_BODY.originX)) + (player.flipX ? -PLAYER_BODY.width : PLAYER_BODY.width / 2));
-          atkBody.y = (body.y + (PLAYER_BODY.height * PLAYER_BODY.originY));
-        }
       }
     });
 
@@ -398,24 +431,64 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       const physicsBodyExists = (typeof this.physicsBodies[objID] !== 'undefined');
 
       if (physicsBodyExists) {
+        const {texture: t} = obj;
         const body = this.physicsBodies[objID];
         
-        obj.x = (body.x);
-        obj.y = (body.y);
+        obj.x = (body.x + (obj.flipX ? -1 : 1 * OBJECT_BODIES[t].width * OBJECT_BODIES[t].originX));
+        obj.y = (body.y) + (OBJECT_BODIES[t].height * OBJECT_BODIES[t].originY);
       }
     });
   }
 
   onJoin (client: Client, options: any) {
     console.log(client.sessionId, "joined!");
-    this.state.players.set(client.sessionId, new Player(options.playerName, client.sessionId, PLAYER_BODY.width, PLAYER_BODY.height));
 
-    this.physicsBodies[client.sessionId] = this.physics.add.body(arena.room_boundaries['L0'], 0, PLAYER_BODY.width, PLAYER_BODY.height);
+    // Add state object for player
+    this.state.players.set(client.sessionId, new Player(
+      options.playerName,
+      client.sessionId,
+      PLAYER_BODY.width,
+      PLAYER_BODY.height
+    ));
 
-    this.attackBodies[client.sessionId] = this.physics.add.body(arena.room_boundaries['L0'] + PLAYER_BODY.width / 2, 0, PLAYER_BODY.width / 2, PLAYER_BODY.height);
+    // Add body for player
+    this.createPhysicsBody(
+      client.sessionId,
+      arena.room_boundaries['L0'],
+      0,
+      PLAYER_BODY.width,
+      PLAYER_BODY.height
+    );
 
-    // Add collision detection
-    this.playerColliders[client.sessionId] = this.physics.add.collider(this.physicsBodies[client.sessionId], this.physicsMap);
+    // Add state object for sword
+    this.state.objects.set(`sword_${client.sessionId}`, new AbstractObject(
+      `sword_${client.sessionId}`,
+      arena.room_boundaries['L0'],
+      0,
+      OBJECT_BODIES['sword'].width,
+      OBJECT_BODIES['sword'].height,
+      OBJECT_BODIES['sword'].originX,
+      OBJECT_BODIES['sword'].originY,
+      'sword'
+    ));
+
+    // Add body for sword
+    this.createPhysicsBody(
+      `sword_${client.sessionId}`,
+      arena.room_boundaries['L0'],
+      0,
+      OBJECT_BODIES['sword'].width,
+      OBJECT_BODIES['sword'].height
+    );
+
+    // Disable gravity on the sword body
+    this.physicsBodies[`sword_${client.sessionId}`].setAllowGravity(false);
+
+    // Add player v map collision detection
+    this.playerColliders[client.sessionId] = this.physics.add.collider(
+      this.physicsBodies[client.sessionId],
+      this.physicsMap
+    );
   }
 
   onLeave (client: Client, consented: boolean) {
