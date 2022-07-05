@@ -91,7 +91,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           if (player.level === 'low') {
             player.level = 'mid';
   
-            if (isAtkBodiesTouching && enemy.level === 'mid') {
+            if (enemy.animPrefix === 'sword' && isAtkBodiesTouching && enemy.level === 'mid') {
               enemy.animPrefix = 'nosword';
               doSpawnSword = true;
             }
@@ -99,7 +99,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           else if (player.level === 'mid') {
             player.level = 'high';
   
-            if (isAtkBodiesTouching && enemy.level === 'high') {
+            if (enemy.animPrefix === 'sword' && isAtkBodiesTouching && enemy.level === 'high') {
               enemy.animPrefix = 'nosword';
               doSpawnSword = true;
             }
@@ -109,7 +109,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           if (player.level === 'high') {
             player.level = 'mid';
   
-            if (isAtkBodiesTouching && enemy.level === 'mid') {
+            if (enemy.animPrefix === 'sword' && isAtkBodiesTouching && enemy.level === 'mid') {
               enemy.animPrefix = 'nosword';
               doSpawnSword = true;
             }
@@ -117,7 +117,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           else if (player.level === 'mid') {
             player.level = 'low';
   
-            if (isAtkBodiesTouching && enemy.level === 'low') {
+            if (enemy.animPrefix === 'sword' && isAtkBodiesTouching && enemy.level === 'low') {
               enemy.animPrefix = 'nosword';
               doSpawnSword = true;
             }
