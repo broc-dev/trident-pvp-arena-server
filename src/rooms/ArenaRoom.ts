@@ -64,12 +64,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   killPlayer(playerID: string) {
     const player = this.state.players.get(playerID);
 
-    // Knock player up
-    this.physicsBodies[playerID].setVelocityY(-300);
-
-    // Destroy player's map collider
-    this.physics.world.removeCollider(this.playerColliders[playerID]);
-
     // Lock player to "dead state" (will also triger animation)
     player.isDead = true;
   }
@@ -264,10 +258,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             !player.flipX && player.velX > 0 && player.velX < MAX_SPEED
           ) {
             if (hasSword) {
-              player.anim = `${player.animPrefix}-backstep-${player.level}`;
+              player.anim = `${player.animPrefix}-forstep-${player.level}`;
             }
             else {
-              player.anim = `${player.animPrefix}-backstep`;
+              player.anim = `${player.animPrefix}-forstep`;
             }
           }
           else if (
@@ -275,10 +269,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             !player.flipX && player.velX < 0 && player.velX > -MAX_SPEED
           ) {
             if (hasSword) {
-              player.anim = `${player.animPrefix}-forstep-${player.level}`;
+              player.anim = `${player.animPrefix}-backstep-${player.level}`;
             }
             else {
-              player.anim = `${player.animPrefix}-forstep`;
+              player.anim = `${player.animPrefix}-backstep`;
             }
           }
           else if (player.velX === MAX_SPEED || player.velX === -MAX_SPEED) {
@@ -291,8 +285,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         }
       }
       else {
-        player.animMode = 'loop';
-        player.anim = `${player.animPrefix}-temp-death`;
+        player.animMode = 'play-once';
+        player.anim = `death-stand`;
       }
     });
 
