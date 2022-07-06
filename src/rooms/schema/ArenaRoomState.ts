@@ -122,6 +122,8 @@ export class Player extends Schema {
   @type('boolean')
   isDead: boolean = false;
 
+  @type('number')
+  xSwordOffset: number = 0;
 
   constructor(playerName: string, id: string, width: number, height: number) {
     super();

@@ -23,14 +23,24 @@ const OBJECT_BODIES: Record<string, any> = {
   }
 };
 
+const MS_PER_FRAME = 75;
+
+const SWORD_ATTACK_FRAME_XOFFSETS: Array<number> = [
+  // 0,
+  1,
+  4,
+  16,
+  16,
+  4,
+  1
+];
+
 const FPS = 60;
 
 const MAX_SPEED = 300;
 const ACCELERATION = 10;
 
 const PLAYER_JUMP_FORCE = 300;
-
-const ANIM_STAB_FULL_REACH_DELAY = 168; // MS delay in anim before full reach
 
 export class ArenaRoom extends Room<ArenaRoomState> {
 
@@ -64,22 +74,29 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   killPlayer(playerID: string) {
     const player = this.state.players.get(playerID);
 
+    // Prevent movement after death
+    this.physicsBodies[playerID].setVelocityX(0);
+
     // Lock player to "dead state" (will also triger animation)
     player.isDead = true;
   }
 
-  // queueAttack(playerID: string) {
-  //   this.clock.setTimeout(() => {
-  //     const player = this.state.players.get(playerID);
-  //     const enemyID = this.getOtherPlayerID(playerID);
-  //     const enemy = this.state.players.get(enemyID);
+  doAttack(playerID: string) {
+    const player = this.state.players.get(playerID);
 
-  //     const xDiff = Math.abs(player.x - enemy.x);
+    // Adjust sword hitbox by mapped xoffset / frame
+    let frame = 0;
+    const hitboxShiftInterval = this.clock.setInterval(() => {
+      player.xSwordOffset = SWORD_ATTACK_FRAME_XOFFSETS[frame];
+      frame++;
+    }, MS_PER_FRAME);
 
-      
-
-  //   }, ANIM_STAB_FULL_REACH_DELAY);
-  // }
+    // Clear after last frame
+    this.clock.setTimeout(() => {
+      player.xSwordOffset = 0;
+      hitboxShiftInterval.clear();
+    }, MS_PER_FRAME * SWORD_ATTACK_FRAME_XOFFSETS.length);
+  }
 
   onCreate (options: any) {
     this.setState(new ArenaRoomState());
@@ -196,6 +213,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             hasSword,
             level: player.level
           });
+
+          this.doAttack(client.sessionId);
   
           player.velX = 0;
           playerBody.setVelocityX(0);
@@ -404,6 +423,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             swordBody.x = playerX + (8 * flipMod) - flipOffset;
             swordBody.y = playerY - 40;
           }
+
+          // Adjust for additional x offset
+          swordBody.x += (player.xSwordOffset * flipMod);
         }
       }
     });
@@ -483,6 +505,24 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       this.physicsBodies[client.sessionId],
       this.physicsMap
     );
+
+    // If both players have spawned, register sword overlaps
+    const enemyID = this.getOtherPlayerID(client.sessionId);
+
+    if (enemyID !== '') {
+      const playerBody = this.physicsBodies[client.sessionId];
+      const enemyBody = this.physicsBodies[enemyID];
+      const playerSword = this.physicsBodies[`sword_${client.sessionId}`];
+      const enemySword = this.physicsBodies[`sword_${enemyID}`];
+
+      this.physics.add.overlap(playerSword, enemyBody, () => {
+        this.killPlayer(enemyID);
+      });
+
+      this.physics.add.overlap(enemySword, playerBody, () => {
+        this.killPlayer(client.sessionId);
+      });
+    }
   }
 
   onLeave (client: Client, consented: boolean) {
