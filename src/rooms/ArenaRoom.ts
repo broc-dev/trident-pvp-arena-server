@@ -40,7 +40,7 @@ const FPS = 60;
 const MAX_SPEED = 300;
 const ACCELERATION = 10;
 
-const PLAYER_JUMP_FORCE = 300;
+const PLAYER_JUMP_FORCE = 500;
 
 export class ArenaRoom extends Room<ArenaRoomState> {
 
@@ -330,7 +330,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             debug: true,
             gravity: {
               x: 0,
-              y: 300
+              y: 900
             }
           }
         },
