@@ -171,6 +171,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       const {up, left, right, attack: doAttack, jump} = input;
       const playerBody = this.physicsBodies[client.sessionId];
       const player = this.state.players.get(client.sessionId);
+      const enemyID = this.getOtherPlayerID(client.sessionId);
       const isGrounded = (playerBody.blocked.down);
 
       if (!player.isDead) {
@@ -196,8 +197,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           this.physicsBodies[swordID].setAllowGravity(false);
   
           // Add overlap calls w/ other player
-          const enemyID = this.getOtherPlayerID(client.sessionId);
-  
           this.physics.add.overlap(this.physicsBodies[swordID], this.physicsBodies[enemyID], () => {
             this.killPlayer(enemyID);
           });
@@ -240,6 +239,17 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           }
           else {
             player.velX = 0;
+
+            if (enemyID !== '') {
+              const enemy = this.state.players.get(enemyID);
+              
+              if (enemy.x <= player.x) {
+                player.flipX = true;
+              }
+              else {
+                player.flipX = false;
+              }
+            }
           }
     
           // Jump
