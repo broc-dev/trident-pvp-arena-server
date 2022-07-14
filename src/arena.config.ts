@@ -7,7 +7,7 @@ import { monitor } from "@colyseus/monitor";
 import { ArenaRoom } from "./rooms/ArenaRoom";
 
 export default Arena({
-    getId: () => "Your Colyseus App",
+    getId: () => "Trident PVP Server",
 
     initializeGameServer: (gameServer) => {
         /**
