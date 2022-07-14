@@ -98,8 +98,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // Prevent movement after death
     this.physicsBodies[playerID].setVelocityX(0);
 
-    // Lock player to "dead state" (will also triger animation)
-    player.isDead = true;
+    // Lock player to "dead state" (will also trigger animation)
+    // Verifies that player exists before trying to kill him
+    (player !== undefined) ? player.isDead = true : console.log(`Player ${playerID} no longer exists, cannot kill`);
   }
 
   doAttack(playerID: string) {
@@ -137,7 +138,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       const player = this.state.players.get(playerID);
       const hasSword = (player.animPrefix === 'sword');
 
-      if (!player.isDead && hasSword) {
+      if (player !== undefined && !player.isDead && hasSword) {
         // Get enemy
         const enemyID = this.getOtherPlayerID(playerID);
         const enemy = this.state.players.get(enemyID);
@@ -578,7 +579,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   }
 
   onJoin (client: Client, options: any) {
-    console.log(client.sessionId, "joined!");
+    console.log(client.sessionId, "joined as", options.playerName);
 
     // Init player room tracker
     this.playerRooms[client.sessionId] = 'room_0';
