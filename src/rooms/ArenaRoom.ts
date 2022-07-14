@@ -39,6 +39,9 @@ const SWORD_ATTACK_FRAME_XOFFSETS: Array<number> = [
 
 const FPS = 60;
 
+const SWORD_BOUNCEBACK = 120;
+const SWORD_BOUNCEBACK_DELAY = 150;
+
 const MAX_SPEED = 360;
 const ACCELERATION = 30;
 
@@ -180,10 +183,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       const enemyID = this.getOtherPlayerID(client.sessionId);
       const isGrounded = (playerBody.blocked.down);
 
-      if (!player.isDead) {
-
+      if (!player.isDead && !player.isKnocked) {
         // Attack (or throw attack)
-        const isGrounded = (playerBody.blocked.down);
         const hasSword = (player.animPrefix === 'sword');
         const throwReady = (player.level === 'high' && up);
         const doThrowAttack = (throwReady && doAttack);
@@ -319,7 +320,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           player.anim = `${player.animPrefix}-flip`;
         }
       }
-      else {
+      else if (player.isKnocked) {
+
+      }
+      else if (player.isDead) {
         player.animMode = 'play-once';
         player.anim = `death-stand`;
       }
@@ -526,13 +530,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     const enemyID = this.getOtherPlayerID(client.sessionId);
 
     if (enemyID !== '') {
+      const player = this.state.players.get(client.sessionId);
+      const enemy = this.state.players.get(enemyID);
       const playerBody = this.physicsBodies[client.sessionId];
       const enemyBody = this.physicsBodies[enemyID];
       const playerSword = this.physicsBodies[`sword_${client.sessionId}`];
       const enemySword = this.physicsBodies[`sword_${enemyID}`];
 
+      // Player sword vs enemy body
       this.physics.add.overlap(playerSword, enemyBody, () => {
-        const player = this.state.players.get(client.sessionId);
         const swordIsHot = (typeof player !== 'undefined' && (player.animPrefix === 'sword' || playerSword.velocity.x !== 0));
 
         if (swordIsHot) {
@@ -540,12 +546,33 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         }
       });
 
+      // Enemy sword vs player body
       this.physics.add.overlap(enemySword, playerBody, () => {
-        const enemy = this.state.players.get(enemyID);
         const swordIsHot = (typeof enemy !== 'undefined' && (enemy.animPrefix === 'sword' || enemySword.velocity.x !== 0));
 
         if (swordIsHot) {
           this.killPlayer(client.sessionId);
+        }
+      });
+
+      // Sword vs sword (same-level knocback)
+      this.physics.add.overlap(playerSword, enemySword, () => {
+        const doBounce = (player.animPrefix === 'sword' && enemy.animPrefix === 'sword' && player.level === enemy.level);
+
+        if (doBounce) {
+          const playerDir = (player.flipX ? 1 : -1);
+          const enemyDir = (enemy.flipX ? 1 : -1);
+
+          playerBody.setVelocityX(SWORD_BOUNCEBACK * playerDir);
+          enemyBody.setVelocityX(SWORD_BOUNCEBACK * enemyDir);
+
+          player.isKnocked = true;
+          enemy.isKnocked = true;
+
+          this.clock.setTimeout(() => {
+            player.isKnocked = false;
+            enemy.isKnocked = false;
+          }, SWORD_BOUNCEBACK_DELAY);
         }
       });
     }

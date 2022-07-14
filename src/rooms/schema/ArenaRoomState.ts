@@ -125,6 +125,9 @@ export class Player extends Schema {
   @type('number')
   xSwordOffset: number = 0;
 
+  @type('boolean')
+  isKnocked: boolean = false;
+
   constructor(playerName: string, id: string, width: number, height: number) {
     super();
     this.playerName = playerName;
