@@ -3,9 +3,11 @@ import { AbstractObject, ArenaRoomState, HitboxDebug, Player } from "./schema/Ar
 import { ArcadePhysics } from 'arcade-physics';
 import { Body } from 'arcade-physics/lib/physics/arcade/Body';
 import { StaticBody } from "arcade-physics/lib/physics/arcade/StaticBody";
-import arena from "../maps/arena";
+import SingularityMap from "../maps/SingularityMap";
 
 const DEBUG_ENABLED = true; // set to false in production build
+
+const MAP_DATA = SingularityMap;
 
 const PLAYER_BODY = {
   width: 20,
@@ -23,7 +25,7 @@ const OBJECT_BODIES: Record<string, any> = {
   }
 };
 
-const MS_PER_FRAME = 75;
+const MS_PER_FRAME = 37;
 
 const SWORD_ATTACK_FRAME_XOFFSETS: Array<number> = [
   // 0,
@@ -37,12 +39,15 @@ const SWORD_ATTACK_FRAME_XOFFSETS: Array<number> = [
 
 const FPS = 60;
 
-const MAX_SPEED = 300;
-const ACCELERATION = 10;
+const MAX_SPEED = 360;
+const ACCELERATION = 30;
 
 const GRAVITY = 1400;
 
 const PLAYER_JUMP_FORCE = 600;
+
+const THROW_VELOCITY = 700;
+const DISARM_VELOCITY = 200;
 
 export class ArenaRoom extends Room<ArenaRoomState> {
 
@@ -144,7 +149,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           
           if (areSwordsTouching) {
             const swordID = `sword_${enemyID}`;
-            const swordVelocity = 200;
             const sword = this.state.objects.get(swordID);
 
             // Disarm enemy
@@ -157,7 +161,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             sword.flipX = enemy.flipX;
     
             // Set sword body velocity (*(+/-)1(flipX?))
-            this.physicsBodies[swordID].setVelocityY((direction === 'up' ? -1 : 1) * swordVelocity);
+            this.physicsBodies[swordID].setVelocityY((direction === 'up' ? -1 : 1) * DISARM_VELOCITY);
 
             // Enable gravity on sword
             this.physicsBodies[swordID].setAllowGravity(true);
@@ -179,13 +183,13 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       if (!player.isDead) {
 
         // Attack (or throw attack)
+        const isGrounded = (playerBody.blocked.down);
         const hasSword = (player.animPrefix === 'sword');
         const throwReady = (player.level === 'high' && up);
         const doThrowAttack = (throwReady && doAttack);
   
-        if (hasSword && doThrowAttack) {
+        if (isGrounded && hasSword && doThrowAttack) {
           const swordID = `sword_${client.sessionId}`;
-          const swordVelocity = 400;
   
           const sword = this.state.objects.get(swordID);
 
@@ -204,11 +208,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           });
   
           // Set sword body velocity (*(+/-)1(flipX?))
-          this.physicsBodies[swordID].setVelocityX((sword.flipX ? -1 : 1) * swordVelocity);
+          this.physicsBodies[swordID].setVelocityX((sword.flipX ? -1 : 1) * THROW_VELOCITY);
   
           // Set animPrefix to nosword (done in anim code below)
         }
-        else if (doAttack) {
+        else if (isGrounded && doAttack) {
           this.broadcast('player-attack', {
             playerID: client.sessionId,
             hasSword,
@@ -221,7 +225,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           playerBody.setVelocityX(0);
         }
         // Move / Idle / Default animation logic
-        else {
+        else if (!throwReady) {
           // L/R movement
           if (left) {
             if (player.velX > -MAX_SPEED) {
@@ -353,17 +357,17 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // this.physicsMap[0] = this.physics.add.staticBody((0 - (2400 / 2)), (300 - (100 / 2)), 2400, 100);
     // this.physicsMap[1] = this.physics.add.staticBody((2400 - (2400 / 2)), (200 - (100 / 2)), 2400, 100);
 
-    for (let y = 0; y < arena.height; y++) {
-      for (let x = 0; x < arena.width; x++) {
-        const px = (x * arena.tile_width);
-        const py = (y * arena.tile_height);
-        const i = (y * arena.width + x);
-        const isBlocking = (arena.data[i] === 1);
+    for (let y = 0; y < MAP_DATA.height; y++) {
+      for (let x = 0; x < MAP_DATA.width; x++) {
+        const px = (x * MAP_DATA.tile_width);
+        const py = (y * MAP_DATA.tile_height);
+        const i = (y * MAP_DATA.width + x);
+        const isBlocking = (MAP_DATA.collision_map[i] === 1);
 
         if (isBlocking) {
           this.physicsMap = [
             ...this.physicsMap,
-            this.physics.add.staticBody(px, py, arena.tile_width, arena.tile_height)
+            this.physics.add.staticBody(px, py, MAP_DATA.tile_width, MAP_DATA.tile_height)
           ];
         }
       }
@@ -482,7 +486,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // Add body for player
     this.createPhysicsBody(
       client.sessionId,
-      arena.room_boundaries['L0'],
+      MAP_DATA.room_boundaries['L0'],
       0,
       PLAYER_BODY.width,
       PLAYER_BODY.height
@@ -491,7 +495,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // Add state object for sword
     this.state.objects.set(`sword_${client.sessionId}`, new AbstractObject(
       `sword_${client.sessionId}`,
-      arena.room_boundaries['L0'],
+      MAP_DATA.room_boundaries['L0'],
       0,
       OBJECT_BODIES['sword'].width,
       OBJECT_BODIES['sword'].height,
@@ -503,7 +507,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // Add body for sword
     this.createPhysicsBody(
       `sword_${client.sessionId}`,
-      arena.room_boundaries['L0'],
+      MAP_DATA.room_boundaries['L0'],
       0,
       OBJECT_BODIES['sword'].width,
       OBJECT_BODIES['sword'].height
@@ -528,18 +532,37 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       const enemySword = this.physicsBodies[`sword_${enemyID}`];
 
       this.physics.add.overlap(playerSword, enemyBody, () => {
-        this.killPlayer(enemyID);
+        const player = this.state.players.get(client.sessionId);
+        const swordIsHot = (typeof player !== 'undefined' && (player.animPrefix === 'sword' || playerSword.velocity.x !== 0));
+
+        if (swordIsHot) {
+          this.killPlayer(enemyID);
+        }
       });
 
       this.physics.add.overlap(enemySword, playerBody, () => {
-        this.killPlayer(client.sessionId);
+        const enemy = this.state.players.get(enemyID);
+        const swordIsHot = (typeof enemy !== 'undefined' && (enemy.animPrefix === 'sword' || enemySword.velocity.x !== 0));
+
+        if (swordIsHot) {
+          this.killPlayer(client.sessionId);
+        }
       });
     }
   }
 
   onLeave (client: Client, consented: boolean) {
     console.log(client.sessionId, "left!");
+
+    // Delete state reference
     this.state.players.delete(client.sessionId);
+
+    // Delete hitboxDebug reference
+    this.state.hitboxDebug.delete(client.sessionId);
+
+    // Destroy & delete physics body
+    this.physicsBodies[client.sessionId].destroy();
+    delete this.physicsBodies[client.sessionId];
   }
 
   onDispose() {
