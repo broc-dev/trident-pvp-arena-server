@@ -39,6 +39,8 @@ const SWORD_ATTACK_FRAME_XOFFSETS: Array<number> = [
 
 const FPS = 60;
 
+const LUNGE_VELOCITY = 120;
+
 const SWORD_BOUNCEBACK = 120;
 const SWORD_BOUNCEBACK_DELAY = 150;
 
@@ -93,6 +95,14 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
   doAttack(playerID: string) {
     const player = this.state.players.get(playerID);
+    
+    // Lock input
+    player.isInputLocked = true;
+
+    // Move in direction of attack
+    const dir = (player.flipX ? -1 : 1);
+
+    this.physicsBodies[playerID].setVelocityX(dir * LUNGE_VELOCITY);
 
     // Adjust sword hitbox by mapped xoffset / frame
     let frame = 0;
@@ -105,6 +115,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.clock.setTimeout(() => {
       player.xSwordOffset = 0;
       hitboxShiftInterval.clear();
+      player.isInputLocked = false;
     }, MS_PER_FRAME * SWORD_ATTACK_FRAME_XOFFSETS.length);
   }
 
@@ -171,6 +182,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     
             // Add collider w/ map so sword will land
             this.physics.add.collider(this.physicsBodies[swordID], this.physicsMap);
+
+            this.broadcast('camera-flash');
           }
         }
       }
@@ -183,7 +196,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       const enemyID = this.getOtherPlayerID(client.sessionId);
       const isGrounded = (playerBody.blocked.down);
 
-      if (!player.isDead && !player.isKnocked) {
+      if (!player.isDead && !player.isInputLocked) {
         // Attack (or throw attack)
         const hasSword = (player.animPrefix === 'sword');
         const throwReady = (player.level === 'high' && up);
@@ -220,10 +233,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             level: player.level
           });
 
-          this.doAttack(client.sessionId);
-  
           player.velX = 0;
           playerBody.setVelocityX(0);
+
+          this.doAttack(client.sessionId);
         }
         // Move / Idle / Default animation logic
         else if (!throwReady) {
@@ -320,8 +333,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           player.anim = `${player.animPrefix}-flip`;
         }
       }
-      else if (player.isKnocked) {
-
+      else if (player.isInputLocked) {
+        // Could put custom anims here or something
       }
       else if (player.isDead) {
         player.animMode = 'play-once';
@@ -566,12 +579,12 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           playerBody.setVelocityX(SWORD_BOUNCEBACK * playerDir);
           enemyBody.setVelocityX(SWORD_BOUNCEBACK * enemyDir);
 
-          player.isKnocked = true;
-          enemy.isKnocked = true;
+          player.isInputLocked = true;
+          enemy.isInputLocked = true;
 
           this.clock.setTimeout(() => {
-            player.isKnocked = false;
-            enemy.isKnocked = false;
+            player.isInputLocked = false;
+            enemy.isInputLocked = false;
           }, SWORD_BOUNCEBACK_DELAY);
         }
       });

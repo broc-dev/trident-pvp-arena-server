@@ -126,7 +126,7 @@ export class Player extends Schema {
   xSwordOffset: number = 0;
 
   @type('boolean')
-  isKnocked: boolean = false;
+  isInputLocked: boolean = false;
 
   constructor(playerName: string, id: string, width: number, height: number) {
     super();
