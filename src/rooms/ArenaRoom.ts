@@ -54,6 +54,13 @@ const PLAYER_JUMP_FORCE = 600;
 const THROW_VELOCITY = 700;
 const DISARM_VELOCITY = 200;
 
+// https://stackoverflow.com/questions/1527803/generating-random-whole-numbers-in-javascript-in-a-specific-range
+function getRandomInt(min: number, max: number) {
+  min = Math.ceil(min);
+  max = Math.floor(max);
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 export class ArenaRoom extends Room<ArenaRoomState> {
 
   maxClients: number = 2;
@@ -62,6 +69,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   physics: ArcadePhysics = null;
   physicsTick: number = 0;
   physicsMap: Array<StaticBody> = [];
+  playerRooms: Record<string, string> = {};
 
   createPhysicsBody(id: string, x: number, y: number, width: number, height: number) {
     this.physicsBodies[id] = this.physics.add.body(x, y, width, height);
@@ -84,6 +92,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   }
 
   killPlayer(playerID: string) {
+    this.broadcast('client-log', 'We killin errybody');
     const player = this.state.players.get(playerID);
 
     // Prevent movement after death
@@ -263,11 +272,13 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             if (enemyID !== '') {
               const enemy = this.state.players.get(enemyID);
               
-              if (enemy.x <= player.x) {
-                player.flipX = true;
-              }
-              else {
-                player.flipX = false;
+              if (!enemy.isDead) {
+                if (enemy.x <= player.x) {
+                  player.flipX = true;
+                }
+                else {
+                  player.flipX = false;
+                }
               }
             }
           }
@@ -404,6 +415,49 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.moveHeldSwords();
     this.syncStateWithPhysics();
     this.syncHitboxDebug();
+    this.watchForRespawnsAndWin();
+  }
+
+  watchForRespawnsAndWin() {
+    // If player or enemy are dead, watch for the other to change rooms
+    // When the room changes, find spawn point IN room, BUT furthest from player who entered
+    // Respawn dead player there
+    this.state.players.forEach((player) => {
+      const enemyID = this.getOtherPlayerID(player.id);
+      const {x} = player;
+      let enemy = null;
+
+      if (enemyID !== '') {
+        enemy = this.state.players.get(enemyID);
+      }
+
+      let currentRoomName = null;
+  
+      MAP_DATA.rooms.forEach((r) => {
+        const {x: rx, width} = r;
+        if (x >= rx && x <= rx + width) {
+          currentRoomName = r.name;
+        }
+      });
+
+      const playerHasChangedRooms = (currentRoomName !== this.playerRooms[player.id]);
+      const doRespawnEnemy = (
+        enemy !== null &&
+        playerHasChangedRooms &&
+        enemy.isDead &&
+        !['room_L6', 'room_R6'].includes(currentRoomName)
+      );
+
+      if (doRespawnEnemy) {
+        const spawnPoint = this.getFurthestSpawnPointInRoom(currentRoomName, x);
+        this.respawn(enemyID, spawnPoint.x, spawnPoint.y);
+      }
+
+      // Update for next frame's watch
+      this.playerRooms[player.id] = currentRoomName;
+    });
+
+    // If either player enters their opposite "win" room, game over, they win
   }
 
   syncHitboxDebug() {
@@ -489,8 +543,45 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     });
   }
 
+  respawn(playerID: string, x: number, y: number) {
+    const player = this.state.players.get(playerID);
+
+    this.physicsBodies[playerID].x = x;
+    this.physicsBodies[playerID].y = y;
+
+    player.isDead = false;
+    player.animMode = 'loop';
+    player.anim = `${player.animPrefix}-flip`;
+
+    this.broadcast('player-respawn', playerID);
+  }
+
+  getFurthestSpawnPointInRoom(roomName: string, targetX: number) {
+    const spawnPoints = MAP_DATA.spawn_points.filter((room) => room.room === roomName);
+    let furthestSpawnPoint: any = null;
+
+    spawnPoints.forEach((spawnPoint) => {
+      if (furthestSpawnPoint === null) {
+        furthestSpawnPoint = spawnPoint;
+      }
+      else {
+        const d2fsp = Math.abs(furthestSpawnPoint.x - targetX);
+        const d2nsp = Math.abs(spawnPoint.x - targetX);
+
+        if (d2nsp > d2fsp) {
+          furthestSpawnPoint = spawnPoint;
+        }
+      }
+    });
+
+    return furthestSpawnPoint;
+  }
+
   onJoin (client: Client, options: any) {
     console.log(client.sessionId, "joined!");
+
+    // Init player room tracker
+    this.playerRooms[client.sessionId] = 'room_0';
 
     // Add state object for player
     this.state.players.set(client.sessionId, new Player(
@@ -500,11 +591,29 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       PLAYER_BODY.height
     ));
 
+    const enemyID = this.getOtherPlayerID(client.sessionId);
+    let spawnX = null;
+    let spawnY = null;
+
+    if (enemyID === '') {
+      // We're alone in the room, pick random side of room_0
+      const spawnPoints = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0');
+      const spawnPoint = spawnPoints[getRandomInt(0, spawnPoints.length - 1)];
+      spawnX = spawnPoint.x;
+      spawnY = spawnPoint.y;
+    }
+    else {
+      const enemyBody = this.physicsBodies[enemyID];
+      const spawnPoint = this.getFurthestSpawnPointInRoom('room_0', enemyBody.x);
+      spawnX = spawnPoint.x;
+      spawnY = spawnPoint.y;
+    }
+
     // Add body for player
     this.createPhysicsBody(
       client.sessionId,
-      MAP_DATA.room_boundaries['L0'],
-      0,
+      spawnX,
+      spawnY,
       PLAYER_BODY.width,
       PLAYER_BODY.height
     );
@@ -512,8 +621,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // Add state object for sword
     this.state.objects.set(`sword_${client.sessionId}`, new AbstractObject(
       `sword_${client.sessionId}`,
-      MAP_DATA.room_boundaries['L0'],
-      0,
+      spawnX,
+      spawnY,
       OBJECT_BODIES['sword'].width,
       OBJECT_BODIES['sword'].height,
       OBJECT_BODIES['sword'].originX,
@@ -524,8 +633,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // Add body for sword
     this.createPhysicsBody(
       `sword_${client.sessionId}`,
-      MAP_DATA.room_boundaries['L0'],
-      0,
+      spawnX,
+      spawnY,
       OBJECT_BODIES['sword'].width,
       OBJECT_BODIES['sword'].height
     );
@@ -540,8 +649,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     );
 
     // If both players have spawned, register sword overlaps
-    const enemyID = this.getOtherPlayerID(client.sessionId);
-
     if (enemyID !== '') {
       const player = this.state.players.get(client.sessionId);
       const enemy = this.state.players.get(enemyID);
