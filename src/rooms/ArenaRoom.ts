@@ -180,6 +180,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             
             // Set sword texture to active
             sword.isTextureVisible = true;
+
+            // Set sword so it's no longer attached to enemy
+            sword.attachedTo = '';
     
             // Flip sword according to player
             sword.flipX = enemy.flipX;
@@ -218,6 +221,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
           // Enable sword texture
           sword.isTextureVisible = true;
+
+          // Remove sword's attachedTo
+          sword.attachedTo = '';
   
           // Flip sword according to player
           sword.flipX = player.flipX;
@@ -472,47 +478,50 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.state.players.forEach((player, playerID) => {
       const isPlayerHoldingSword = (player.animPrefix === 'sword');
       const sword = this.getAttachedSword(playerID);
-      const hitboxDebug = this.state.hitboxDebug.get(sword.id);
-
-      hitboxDebug.isActive = sword.isTextureVisible; // If the texture is visible, it means it's been parried or thrown
-
-      if (isPlayerHoldingSword) {
-        const player = this.state.players.get(playerID);
-
-        const isSwordOutAnim = (
-          player.anim.startsWith('sword-idle') ||
-          player.anim.startsWith('sword-forstep') ||
-          player.anim.startsWith('sword-backstep')
-        );
-
-        sword.isActive = isSwordOutAnim;
-        hitboxDebug.isActive = isSwordOutAnim;
-
-        if (isSwordOutAnim) {
-          // Sync / offset sword in idle & stepping anims
-          const playerBody = this.physicsBodies[playerID];
-          const swordBody = this.getAttachedSwordBody(playerID);
-          const playerX = (playerBody.x + (PLAYER_BODY.width * PLAYER_BODY.originX));
-          const playerY = (playerBody.y + (PLAYER_BODY.height * PLAYER_BODY.originY));
-          const flipMod = (player.flipX ? -1 : 1);
-          const flipOffset = (player.flipX ? swordBody.width : 0);
-
-          // WARNING -- MAGIC NUMBERS INCOMING
-          if (player.level === 'low') {
-            swordBody.x = playerX + (10 * flipMod) - flipOffset;
-            swordBody.y = playerY - 20;
+      
+      if (sword !== null) {
+        const hitboxDebug = this.state.hitboxDebug.get(sword.id);
+  
+        hitboxDebug.isActive = sword.isTextureVisible; // If the texture is visible, it means it's been parried or thrown
+  
+        if (isPlayerHoldingSword) {
+          const player = this.state.players.get(playerID);
+  
+          const isSwordOutAnim = (
+            player.anim.startsWith('sword-idle') ||
+            player.anim.startsWith('sword-forstep') ||
+            player.anim.startsWith('sword-backstep')
+          );
+  
+          sword.isActive = isSwordOutAnim;
+          hitboxDebug.isActive = isSwordOutAnim;
+  
+          if (isSwordOutAnim) {
+            // Sync / offset sword in idle & stepping anims
+            const playerBody = this.physicsBodies[playerID];
+            const swordBody = this.getAttachedSwordBody(playerID);
+            const playerX = (playerBody.x + (PLAYER_BODY.width * PLAYER_BODY.originX));
+            const playerY = (playerBody.y + (PLAYER_BODY.height * PLAYER_BODY.originY));
+            const flipMod = (player.flipX ? -1 : 1);
+            const flipOffset = (player.flipX ? swordBody.width : 0);
+  
+            // WARNING -- MAGIC NUMBERS INCOMING
+            if (player.level === 'low') {
+              swordBody.x = playerX + (10 * flipMod) - flipOffset;
+              swordBody.y = playerY - 20;
+            }
+            else if (player.level === 'mid') {
+              swordBody.x = playerX + (8 * flipMod) - flipOffset;
+              swordBody.y = playerY - 28;
+            }
+            else if (player.level === 'high') {
+              swordBody.x = playerX + (8 * flipMod) - flipOffset;
+              swordBody.y = playerY - 40;
+            }
+  
+            // Adjust for additional x offset
+            swordBody.x += (player.xSwordOffset * flipMod);
           }
-          else if (player.level === 'mid') {
-            swordBody.x = playerX + (8 * flipMod) - flipOffset;
-            swordBody.y = playerY - 28;
-          }
-          else if (player.level === 'high') {
-            swordBody.x = playerX + (8 * flipMod) - flipOffset;
-            swordBody.y = playerY - 40;
-          }
-
-          // Adjust for additional x offset
-          swordBody.x += (player.xSwordOffset * flipMod);
         }
       }
     });
@@ -647,11 +656,14 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
         if (!swordIsOwnedByPlayer) {
           const enemyID = this.getOtherPlayerID(player.id);
-          const enemy = this.state.players.get(enemyID);
-          const swordIsHot = (enemy.animPrefix === 'sword' || swordBody.velocity.x !== 0);
-    
-          if (swordIsHot) {
-            this.killPlayer(player.id);
+
+          if (enemyID !== '') {
+            const swordIsOwnedByEnemy = (sword.attachedTo === enemyID);
+            const swordIsHot = (swordIsOwnedByEnemy || swordBody.velocity.x !== 0);
+      
+            if (swordIsHot) {
+              this.killPlayer(player.id);
+            }
           }
         }
       });
