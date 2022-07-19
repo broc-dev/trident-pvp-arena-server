@@ -551,7 +551,12 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     player.isDead = false;
     player.animMode = 'loop';
+    player.animPrefix = 'sword';
     player.anim = `${player.animPrefix}-flip`;
+
+    this.givePlayerSword(playerID);
+    const sword = this.getAttachedSword(playerID);
+    this.initSwordOverlaps(sword.id);
 
     this.broadcast('player-respawn', playerID);
   }
@@ -600,6 +605,113 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     }
   }
 
+  givePlayerSword(playerID: string) {
+    // Add state object for sword
+    const swordID = `sword_${uuidv4()}`;
+    this.state.objects.set(swordID, new AbstractObject(
+      swordID,
+      0,
+      0,
+      OBJECT_BODIES['sword'].width,
+      OBJECT_BODIES['sword'].height,
+      OBJECT_BODIES['sword'].originX,
+      OBJECT_BODIES['sword'].originY,
+      'sword',
+      playerID
+    ));
+
+    // Add body for sword
+    this.createPhysicsBody(
+      swordID,
+      0,
+      0,
+      OBJECT_BODIES['sword'].width,
+      OBJECT_BODIES['sword'].height
+    );
+
+    // Disable gravity on the sword body
+    this.physicsBodies[swordID].setAllowGravity(false);
+  }
+
+  initSwordOverlaps(swordID: string) {
+    const sword = this.state.objects.get(swordID);
+    const swordBody = this.physicsBodies[swordID];
+
+    // Initialize sword touching each player
+    this.state.players.forEach((player) => {
+      const playerBody = this.physicsBodies[player.id];
+
+      // Sword vs player generic
+      this.physics.add.overlap(swordBody, playerBody, () => {
+        const swordIsOwnedByPlayer = (sword.attachedTo === player.id);
+
+        if (!swordIsOwnedByPlayer) {
+          const enemyID = this.getOtherPlayerID(player.id);
+          const enemy = this.state.players.get(enemyID);
+          const swordIsHot = (enemy.animPrefix === 'sword' || swordBody.velocity.x !== 0);
+    
+          if (swordIsHot) {
+            this.killPlayer(player.id);
+          }
+        }
+      });
+    });
+
+    // Initialize sword touching each sword
+    this.state.objects.forEach((object) => {
+      // Make sure we're only examining OTHER SWORDS
+      if (object.texture === 'sword' && object.id !== swordID) {
+        let overlapExists = false;
+        const otherSwordBody = this.physicsBodies[object.id];
+
+        // Iterate over all active colliders in physics world
+        this.physics.world.colliders.getActive().forEach((collider) => {
+          // Only check overlaps, not colliders
+          if (collider.overlapOnly) {
+            if (
+              collider.object1 === swordBody && collider.object2 === otherSwordBody ||
+              collider.object2 === swordBody && collider.object1 === otherSwordBody
+            ) {
+              overlapExists = true;
+            }
+          }
+        });
+
+        // If no overlap between these two swords exists yet, make one
+        if (!overlapExists) {
+          this.physics.add.overlap(swordBody, otherSwordBody, () => {
+            const bothSwordsAreHeld = (sword.attachedTo !== '' && object.attachedTo !== '');
+
+            if (bothSwordsAreHeld) {
+              const player = this.state.players.get(sword.attachedTo);
+              const enemy = this.state.players.get(object.attachedTo);
+              const playerBody = this.physicsBodies[player.id];
+              const enemyBody = this.physicsBodies[enemy.id];
+
+              const doBounce = (player.animPrefix === 'sword' && enemy.animPrefix === 'sword' && player.level === enemy.level && !player.isInputLocked && !enemy.isInputLocked);
+  
+              if (doBounce) {
+                const playerDir = (player.flipX ? 1 : -1);
+                const enemyDir = (enemy.flipX ? 1 : -1);
+  
+                playerBody.setVelocityX(SWORD_BOUNCEBACK * playerDir);
+                enemyBody.setVelocityX(SWORD_BOUNCEBACK * enemyDir);
+  
+                player.isInputLocked = true;
+                enemy.isInputLocked = true;
+  
+                this.clock.setTimeout(() => {
+                  player.isInputLocked = false;
+                  enemy.isInputLocked = false;
+                }, SWORD_BOUNCEBACK_DELAY);
+              }
+            }
+          });
+        }
+      }
+    });
+  }
+
   onJoin (client: Client, options: any) {
     console.log(client.sessionId, "joined as", options.playerName);
 
@@ -641,31 +753,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       PLAYER_BODY.height
     );
 
-    // Add state object for sword
-    const swordID = `sword_${uuidv4()}`;
-    this.state.objects.set(swordID, new AbstractObject(
-      swordID,
-      spawnX,
-      spawnY,
-      OBJECT_BODIES['sword'].width,
-      OBJECT_BODIES['sword'].height,
-      OBJECT_BODIES['sword'].originX,
-      OBJECT_BODIES['sword'].originY,
-      'sword',
-      client.sessionId
-    ));
-
-    // Add body for sword
-    this.createPhysicsBody(
-      swordID,
-      spawnX,
-      spawnY,
-      OBJECT_BODIES['sword'].width,
-      OBJECT_BODIES['sword'].height
-    );
-
-    // Disable gravity on the sword body
-    this.physicsBodies[swordID].setAllowGravity(false);
+    this.givePlayerSword(client.sessionId);
 
     // Add player v map collision detection
     this.playerColliders[client.sessionId] = this.physics.add.collider(
@@ -675,49 +763,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     // If both players have spawned, register sword overlaps
     if (enemyID !== '') {
-      const player = this.state.players.get(client.sessionId);
-      const enemy = this.state.players.get(enemyID);
-      const playerBody = this.physicsBodies[client.sessionId];
-      const enemyBody = this.physicsBodies[enemyID];
-      const playerSword = this.getAttachedSwordBody(client.sessionId);
-      const enemySword = this.getAttachedSwordBody(enemyID);
+      this.state.objects.forEach((object) => {
+        const isSword = (object.id.startsWith('sword_'));
 
-      // Player sword vs enemy body
-      this.physics.add.overlap(playerSword, enemyBody, () => {
-        const swordIsHot = (typeof player !== 'undefined' && (player.animPrefix === 'sword' || playerSword.velocity.x !== 0));
-
-        if (swordIsHot) {
-          this.killPlayer(enemyID);
-        }
-      });
-
-      // Enemy sword vs player body
-      this.physics.add.overlap(enemySword, playerBody, () => {
-        const swordIsHot = (typeof enemy !== 'undefined' && (enemy.animPrefix === 'sword' || enemySword.velocity.x !== 0));
-
-        if (swordIsHot) {
-          this.killPlayer(client.sessionId);
-        }
-      });
-
-      // Sword vs sword (same-level knocback)
-      this.physics.add.overlap(playerSword, enemySword, () => {
-        const doBounce = (player.animPrefix === 'sword' && enemy.animPrefix === 'sword' && player.level === enemy.level);
-
-        if (doBounce) {
-          const playerDir = (player.flipX ? 1 : -1);
-          const enemyDir = (enemy.flipX ? 1 : -1);
-
-          playerBody.setVelocityX(SWORD_BOUNCEBACK * playerDir);
-          enemyBody.setVelocityX(SWORD_BOUNCEBACK * enemyDir);
-
-          player.isInputLocked = true;
-          enemy.isInputLocked = true;
-
-          this.clock.setTimeout(() => {
-            player.isInputLocked = false;
-            enemy.isInputLocked = false;
-          }, SWORD_BOUNCEBACK_DELAY);
+        if (isSword) {
+          this.initSwordOverlaps(object.id);
         }
       });
     }
