@@ -4,6 +4,7 @@ import { ArcadePhysics } from 'arcade-physics';
 import { Body } from 'arcade-physics/lib/physics/arcade/Body';
 import { StaticBody } from "arcade-physics/lib/physics/arcade/StaticBody";
 import SingularityMap from "../maps/SingularityMap";
+// @ts-ignore
 import {v4 as uuidv4} from 'uuid';
 
 const DEBUG_ENABLED = true; // set to false in production build
@@ -95,12 +96,17 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   killPlayer(playerID: string) {
     const player = this.state.players.get(playerID);
 
-    // Prevent movement after death
-    this.physicsBodies[playerID].setVelocityX(0);
-
-    // Lock player to "dead state" (will also trigger animation)
-    // Verifies that player exists before trying to kill him
-    (player !== undefined) ? player.isDead = true : console.log(`Player ${playerID} no longer exists, cannot kill`);
+    if (typeof player !== 'undefined' && !player.isDead) {
+      // Prevent movement after death
+      this.physicsBodies[playerID].setVelocityX(0);
+  
+      // Lock player to "dead state" (will also trigger animation)
+      // Verifies that player exists before trying to kill him
+      player.isDead = true;
+    }
+    else if (typeof player === 'undefined') {
+      console.log(`Player ${playerID} no longer exists, cannot kill`);
+    }
   }
 
   doAttack(playerID: string) {
@@ -399,6 +405,24 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.syncStateWithPhysics();
     this.syncHitboxDebug();
     this.watchForRespawnsAndWin();
+    this.watchForFalls();
+  }
+
+  watchForFalls() {
+    const lowerEdge = (MAP_DATA.height * MAP_DATA.tile_height);
+
+    this.state.players.forEach((player) => {
+      const playerBody = this.physicsBodies[player.id];
+
+      if (playerBody.y > lowerEdge) {
+        this.killPlayer(player.id);
+
+        // This circumvents players immediately being killed when respawning after a fall
+        playerBody.y = 0;
+        playerBody.setAllowGravity(false);
+        playerBody.setVelocityY(0);
+      }
+    });
   }
 
   watchForRespawnsAndWin() {
@@ -534,6 +558,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     this.physicsBodies[playerID].x = x;
     this.physicsBodies[playerID].y = y;
+    this.physicsBodies[playerID].setAllowGravity(true);
 
     player.isDead = false;
     player.animMode = 'loop';
