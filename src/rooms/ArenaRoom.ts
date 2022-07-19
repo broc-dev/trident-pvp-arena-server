@@ -92,7 +92,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   }
 
   killPlayer(playerID: string) {
-    this.broadcast('client-log', 'We killin errybody');
     const player = this.state.players.get(playerID);
 
     // Prevent movement after death
@@ -227,9 +226,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           this.physicsBodies[swordID].setAllowGravity(false);
   
           // Add overlap calls w/ other player
-          this.physics.add.overlap(this.physicsBodies[swordID], this.physicsBodies[enemyID], () => {
-            this.killPlayer(enemyID);
-          });
+          // this.physics.add.overlap(this.physicsBodies[swordID], this.physicsBodies[enemyID], () => {
+          //   this.killPlayer(enemyID);
+          // });
   
           // Set sword body velocity (*(+/-)1(flipX?))
           this.physicsBodies[swordID].setVelocityX((sword.flipX ? -1 : 1) * THROW_VELOCITY);
@@ -295,7 +294,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   
         // Animation logic
         if (hasSword && isGrounded && doThrowAttack) {
-          player.animMode = 'play-once';
+          player.animMode = 'play-hold';
           player.anim = 'sword-throw-attack';
           player.animPrefix = 'nosword'; // Must be changed AFTER sending anim key
         }
@@ -349,7 +348,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         // Could put custom anims here or something
       }
       else if (player.isDead) {
-        player.animMode = 'play-once';
+        player.animMode = 'play-hold';
         player.anim = `death-stand`;
       }
     });
