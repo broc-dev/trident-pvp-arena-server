@@ -418,9 +418,14 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         this.killPlayer(player.id);
 
         // This circumvents players immediately being killed when respawning after a fall
-        playerBody.y = 0;
+        playerBody.y = -500;
         playerBody.setAllowGravity(false);
-        playerBody.setVelocityY(0);
+        playerBody.setVelocity(0, 0);
+
+        const playerSwordBodyOld = this.getAttachedSwordBody(player.id);
+        playerSwordBodyOld.y = -500;
+        playerSwordBodyOld.setAllowGravity(false);
+        playerSwordBodyOld.setVelocity(0, 0);
       }
     });
   }
