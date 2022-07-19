@@ -819,21 +819,29 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   }
 
   onLeave (client: Client, consented: boolean) {
-    console.log(client.sessionId, "left!");
+    console.log('Client id', client.sessionId, 'has left');
 
-    // Delete state reference
-    this.state.players.delete(client.sessionId);
+    const otherPlayerID = this.getOtherPlayerID(client.sessionId);
 
-    // Delete hitboxDebug reference
-    this.state.hitboxDebug.delete(client.sessionId);
+    if (otherPlayerID !== '') {
+      console.log('Client id', otherPlayerID, 'wins by default.');
+      this.declareWinner(otherPlayerID, true);
+    }
 
-    // Destroy & delete physics body
-    this.physicsBodies[client.sessionId].destroy();
-    delete this.physicsBodies[client.sessionId];
+    this.disconnect();
   }
 
   onDispose() {
     console.log("room", this.roomId, "disposing...");
+  }
+
+  declareWinner(playerID: string, winnerByDefault: boolean = false) {
+    const winningPlayer = this.state.players.get(playerID);
+
+    this.broadcast('game-over', {
+      winnerName: winningPlayer.playerName,
+      winnerByDefault
+    });
   }
 
 }
