@@ -172,30 +172,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           const areSwordsTouching = this.physics.overlap(playerSword, enemySword, null, null, this);
           
           if (areSwordsTouching) {
-            const sword = this.getAttachedSword(enemyID);
-            const swordBody = this.getAttachedSwordBody(enemyID);
-
-            // Disarm enemy
-            enemy.animPrefix = 'nosword';
-            
-            // Set sword texture to active
-            sword.isTextureVisible = true;
-
-            // Set sword so it's no longer attached to enemy
-            sword.attachedTo = '';
-    
-            // Flip sword according to player
-            sword.flipX = enemy.flipX;
-    
-            // Set sword body velocity (*(+/-)1(flipX?))
-            swordBody.setVelocityY((direction === 'up' ? -1 : 1) * DISARM_VELOCITY);
-
-            // Enable gravity on sword
-            swordBody.setAllowGravity(true);
-    
-            // Add collider w/ map so sword will land
-            this.physics.add.collider(swordBody, this.physicsMap);
-
+            this.disarmPlayer(enemyID, direction);
             this.broadcast('camera-flash');
           }
         }
@@ -561,6 +538,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     player.isDead = false;
     player.animMode = 'loop';
     player.animPrefix = 'sword';
+    player.level = 'mid';
     player.anim = `${player.animPrefix}-flip`;
 
     this.givePlayerSword(playerID);
@@ -662,6 +640,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             const swordIsHot = (swordIsOwnedByEnemy || swordBody.velocity.x !== 0);
       
             if (swordIsHot) {
+              if (player.animPrefix === 'sword') {
+                this.disarmPlayer(player.id, 'up');
+              }
               this.killPlayer(player.id);
             }
           }
@@ -722,6 +703,33 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         }
       }
     });
+  }
+
+  disarmPlayer(playerID: string, direction: string) {
+    const player = this.state.players.get(playerID);
+    const sword = this.getAttachedSword(playerID);
+    const swordBody = this.getAttachedSwordBody(playerID);
+
+    // Disarm enemy
+    player.animPrefix = 'nosword';
+    
+    // Set sword texture to active
+    sword.isTextureVisible = true;
+
+    // Set sword so it's no longer attached to enemy
+    sword.attachedTo = '';
+
+    // Flip sword according to player
+    sword.flipX = player.flipX;
+
+    // Set sword body velocity (*(+/-)1(flipX?))
+    swordBody.setVelocityY((direction === 'up' ? -1 : 1) * DISARM_VELOCITY);
+
+    // Enable gravity on sword
+    swordBody.setAllowGravity(true);
+
+    // Add collider w/ map so sword will land
+    this.physics.add.collider(swordBody, this.physicsMap);
   }
 
   onJoin (client: Client, options: any) {
