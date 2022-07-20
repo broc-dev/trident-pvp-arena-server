@@ -72,6 +72,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   physicsTick: number = 0;
   physicsMap: Array<StaticBody> = [];
   playerRooms: Record<string, string> = {};
+  playerWinRooms: Record<string, string> = {};
 
   createPhysicsBody(id: string, x: number, y: number, width: number, height: number) {
     this.physicsBodies[id] = this.physics.add.body(x, y, width, height);
@@ -465,11 +466,22 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         this.respawn(enemyID, spawnPoint.x, spawnPoint.y);
       }
 
+      // If either player enters their opposite "win" room, game over, they win
+
+      if (playerHasChangedRooms) {
+        if (currentRoomName === this.playerWinRooms[player.id]) {
+
+          // Wait 3 seconds, then declare the winner
+          this.clock.setTimeout(() => {
+            this.declareWinner(player.id);
+          }, 3000);
+        }
+      }
+
       // Update for next frame's watch
       this.playerRooms[player.id] = currentRoomName;
     });
 
-    // If either player enters their opposite "win" room, game over, they win
   }
 
   syncHitboxDebug() {
@@ -526,7 +538,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             }
   
             // Adjust for additional x offset
-            swordBody.x += (player.xSwordOffset * flipMod);
+            swordBody.x += (player.xSwordOffset * flipMod); // SOURCE OF PHANTOM DEATHS?
           }
         }
       }
@@ -794,6 +806,17 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       spawnY = spawnPoint.y;
     }
 
+    // Determine which room player needs to reach to win
+    const didSpawnOnLeftSide = (spawnX === 5920);
+    const didSpawnOnRightSide = !didSpawnOnLeftSide;
+
+    if (didSpawnOnLeftSide) {
+      this.playerWinRooms[client.sessionId] = 'room_R6';
+    }
+    else if (didSpawnOnRightSide) {
+      this.playerWinRooms[client.sessionId] = 'room_L6';
+    }
+
     // Add body for player
     this.createPhysicsBody(
       client.sessionId,
@@ -832,8 +855,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       console.log('Client id', otherPlayerID, 'wins by default.');
       this.declareWinner(otherPlayerID, true);
     }
-
-    this.disconnect();
   }
 
   onDispose() {
@@ -847,6 +868,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       winnerName: winningPlayer.playerName,
       winnerByDefault
     });
+
+    this.disconnect();
   }
 
 }
