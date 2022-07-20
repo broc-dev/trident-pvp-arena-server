@@ -496,6 +496,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.state.players.forEach((player, playerID) => {
       const isPlayerHoldingSword = (player.animPrefix === 'sword');
       const sword = this.getAttachedSword(playerID);
+      const swordBody = this.getAttachedSwordBody(playerID);
       
       if (sword !== null) {
         const hitboxDebug = this.state.hitboxDebug.get(sword.id);
@@ -513,15 +514,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   
           sword.isActive = isSwordOutAnim;
           hitboxDebug.isActive = isSwordOutAnim;
+
+          const flipMod = (player.flipX ? -1 : 1);
+          const flipOffset = (player.flipX ? swordBody.width : 0);
   
           if (isSwordOutAnim) {
             // Sync / offset sword in idle & stepping anims
             const playerBody = this.physicsBodies[playerID];
-            const swordBody = this.getAttachedSwordBody(playerID);
             const playerX = (playerBody.x + (PLAYER_BODY.width * PLAYER_BODY.originX));
             const playerY = (playerBody.y + (PLAYER_BODY.height * PLAYER_BODY.originY));
-            const flipMod = (player.flipX ? -1 : 1);
-            const flipOffset = (player.flipX ? swordBody.width : 0);
   
             // WARNING -- MAGIC NUMBERS INCOMING
             if (player.level === 'low') {
@@ -538,7 +539,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             }
   
             // Adjust for additional x offset
-            swordBody.x += (player.xSwordOffset * flipMod); // SOURCE OF PHANTOM DEATHS?
+            swordBody.x += (player.xSwordOffset * flipMod);
+          }
+          else {
+            swordBody.x += ((player.xSwordOffset * flipMod) - flipOffset);
           }
         }
       }
