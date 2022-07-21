@@ -187,15 +187,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     });
 
     this.onMessage('keyboard-input', (client: Client, input: Record<string, boolean>) => {
-      const {up, left, right, attack: doAttack, jump} = input;
+      const {up, left, right, down, attack: doAttack, jump} = input;
       const playerBody = this.physicsBodies[client.sessionId];
       const player = this.state.players.get(client.sessionId);
       const enemyID = this.getOtherPlayerID(client.sessionId);
       const isGrounded = (playerBody.blocked.down);
+      const hasSword = (player.animPrefix === 'sword');
 
       if (!player.isDead && !player.isInputLocked) {
         // Attack (or throw attack)
-        const hasSword = (player.animPrefix === 'sword');
         const throwReady = (player.level === 'high' && up);
         const doThrowAttack = (throwReady && doAttack);
   
@@ -276,6 +276,28 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           // Jump
           if (jump && isGrounded) {
             playerBody.setVelocityY(-PLAYER_JUMP_FORCE);
+          }
+
+          // Pickup sword
+          if (down && isGrounded && !hasSword) {
+            // Loop over swords and check for overlaps
+            this.state.objects.forEach((object) => {
+              if (object.id.startsWith('sword_')) {
+                const swordBody = this.physicsBodies[object.id];
+                const isOnGround = (swordBody.blocked.down);
+
+                if (isOnGround) {
+                  const isTouchingSword = this.physics.overlap(playerBody, swordBody, null, null, this);
+
+                  if (isTouchingSword) {
+                    object.attachedTo = player.id;
+                    object.isTextureVisible = false;
+                    swordBody.setAllowGravity(false);
+                    player.animPrefix = 'sword';
+                  }
+                }
+              }
+            });
           }
   
           // Apply velocity for movement
@@ -542,7 +564,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             swordBody.x += (player.xSwordOffset * flipMod);
           }
           // else {
-          //   // swordBody.x += ((player.xSwordOffset * flipMod) - flipOffset);
+          //   swordBody.x = ((player.xSwordOffset * flipMod) - flipOffset);
           // }
         }
       }
