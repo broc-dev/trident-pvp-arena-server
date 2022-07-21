@@ -74,6 +74,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   physicsMap: Array<StaticBody> = [];
   playerRooms: Record<string, string> = {};
   playerWinRooms: Record<string, string> = {};
+  killCounts: Record<string, number> = {};
 
   createPhysicsBody(id: string, x: number, y: number, width: number, height: number) {
     this.physicsBodies[id] = this.physics.add.body(x, y, width, height);
@@ -106,6 +107,13 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     player.isDead = true;
 
     console.log(`${killerID} [${killer}] killed ${playerID} [${player.playerName}]`);
+
+    this.killCounts[killerID]++;
+
+    this.broadcast('update-killcount', {
+      playerID: killerID,
+      killCount: this.killCounts[killerID]
+    });
 
     if (typeof player !== 'undefined' && !player.isDead) {
       // Prevent movement after death
@@ -822,6 +830,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   onJoin (client: Client, options: any) {
     console.log(client.sessionId, "joined as", options.playerName);
 
+    // Init player kill count
+    this.killCounts[client.sessionId] = 0;
+    
     // Init player room tracker
     this.playerRooms[client.sessionId] = 'room_0';
 
