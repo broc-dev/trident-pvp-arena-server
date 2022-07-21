@@ -63,7 +63,10 @@ export class AbstractObject extends Schema {
   @type('boolean')
   isActive: boolean = true;
 
-  constructor(id: string, x: number, y: number, width: number, height: number, originX: number, originY: number, texture: string) {
+  @type('string')
+  attachedTo: string = '';
+
+  constructor(id: string, x: number, y: number, width: number, height: number, originX: number, originY: number, texture: string, attachedTo: string) {
     super();
     this.id = id;
     this.x = x;
@@ -73,6 +76,7 @@ export class AbstractObject extends Schema {
     this.originX = originX;
     this.originY = originY;
     this.texture = texture;
+    this.attachedTo = attachedTo;
   }
 }
 

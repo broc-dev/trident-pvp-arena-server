@@ -4,6 +4,8 @@ import { ArcadePhysics } from 'arcade-physics';
 import { Body } from 'arcade-physics/lib/physics/arcade/Body';
 import { StaticBody } from "arcade-physics/lib/physics/arcade/StaticBody";
 import SingularityMap from "../maps/SingularityMap";
+// @ts-ignore
+import {v4 as uuidv4} from 'uuid';
 
 const DEBUG_ENABLED = true; // set to false in production build
 
@@ -70,6 +72,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   physicsTick: number = 0;
   physicsMap: Array<StaticBody> = [];
   playerRooms: Record<string, string> = {};
+  playerWinRooms: Record<string, string> = {};
 
   createPhysicsBody(id: string, x: number, y: number, width: number, height: number) {
     this.physicsBodies[id] = this.physics.add.body(x, y, width, height);
@@ -92,15 +95,19 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   }
 
   killPlayer(playerID: string) {
-    this.broadcast('client-log', 'We killin errybody');
     const player = this.state.players.get(playerID);
 
-    // Prevent movement after death
-    this.physicsBodies[playerID].setVelocityX(0);
-
-    // Lock player to "dead state" (will also trigger animation)
-    // Verifies that player exists before trying to kill him
-    (player !== undefined) ? player.isDead = true : console.log(`Player ${playerID} no longer exists, cannot kill`);
+    if (typeof player !== 'undefined' && !player.isDead) {
+      // Prevent movement after death
+      this.physicsBodies[playerID].setVelocityX(0);
+  
+      // Lock player to "dead state" (will also trigger animation)
+      // Verifies that player exists before trying to kill him
+      player.isDead = true;
+    }
+    else if (typeof player === 'undefined') {
+      console.log(`Player ${playerID} no longer exists, cannot kill`);
+    }
   }
 
   doAttack(playerID: string) {
@@ -145,8 +152,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         const hasEnemyWithSword = (enemyID !== '' && enemy.animPrefix === 'sword');
 
         // Get swords
-        const playerSword = this.physicsBodies[`sword_${playerID}`];
-        const enemySword = this.physicsBodies[`sword_${enemyID}`];
+        const playerSword = this.getAttachedSwordBody(playerID);
+        const enemySword = this.getAttachedSwordBody(enemyID);
   
         if (direction === 'up') {
           if (player.level === 'low') {
@@ -172,27 +179,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           const areSwordsTouching = this.physics.overlap(playerSword, enemySword, null, null, this);
           
           if (areSwordsTouching) {
-            const swordID = `sword_${enemyID}`;
-            const sword = this.state.objects.get(swordID);
-
-            // Disarm enemy
-            enemy.animPrefix = 'nosword';
-            
-            // Set sword texture to active
-            sword.isTextureVisible = true;
-    
-            // Flip sword according to player
-            sword.flipX = enemy.flipX;
-    
-            // Set sword body velocity (*(+/-)1(flipX?))
-            this.physicsBodies[swordID].setVelocityY((direction === 'up' ? -1 : 1) * DISARM_VELOCITY);
-
-            // Enable gravity on sword
-            this.physicsBodies[swordID].setAllowGravity(true);
-    
-            // Add collider w/ map so sword will land
-            this.physics.add.collider(this.physicsBodies[swordID], this.physicsMap);
-
+            this.disarmPlayer(enemyID, direction);
             this.broadcast('camera-flash');
           }
         }
@@ -213,26 +200,28 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         const doThrowAttack = (throwReady && doAttack);
   
         if (isGrounded && hasSword && doThrowAttack) {
-          const swordID = `sword_${client.sessionId}`;
-  
-          const sword = this.state.objects.get(swordID);
+          const sword = this.getAttachedSword(client.sessionId);
+          const swordBody = this.getAttachedSwordBody(client.sessionId);
 
           // Enable sword texture
           sword.isTextureVisible = true;
+
+          // Remove sword's attachedTo
+          sword.attachedTo = '';
   
           // Flip sword according to player
           sword.flipX = player.flipX;
   
           // Disable gravity when thrown
-          this.physicsBodies[swordID].setAllowGravity(false);
+          swordBody.setAllowGravity(false);
   
           // Add overlap calls w/ other player
-          this.physics.add.overlap(this.physicsBodies[swordID], this.physicsBodies[enemyID], () => {
-            this.killPlayer(enemyID);
-          });
+          // this.physics.add.overlap(this.physicsBodies[swordID], this.physicsBodies[enemyID], () => {
+          //   this.killPlayer(enemyID);
+          // });
   
           // Set sword body velocity (*(+/-)1(flipX?))
-          this.physicsBodies[swordID].setVelocityX((sword.flipX ? -1 : 1) * THROW_VELOCITY);
+          swordBody.setVelocityX((sword.flipX ? -1 : 1) * THROW_VELOCITY);
   
           // Set animPrefix to nosword (done in anim code below)
         }
@@ -295,7 +284,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   
         // Animation logic
         if (hasSword && isGrounded && doThrowAttack) {
-          player.animMode = 'play-once';
+          player.animMode = 'play-hold';
           player.anim = 'sword-throw-attack';
           player.animPrefix = 'nosword'; // Must be changed AFTER sending anim key
         }
@@ -349,7 +338,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         // Could put custom anims here or something
       }
       else if (player.isDead) {
-        player.animMode = 'play-once';
+        player.animMode = 'play-hold';
         player.anim = `death-stand`;
       }
     });
@@ -417,6 +406,29 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.syncStateWithPhysics();
     this.syncHitboxDebug();
     this.watchForRespawnsAndWin();
+    this.watchForFalls();
+  }
+
+  watchForFalls() {
+    const lowerEdge = (MAP_DATA.height * MAP_DATA.tile_height);
+
+    this.state.players.forEach((player) => {
+      const playerBody = this.physicsBodies[player.id];
+
+      if (playerBody.y > lowerEdge) {
+        this.killPlayer(player.id);
+
+        // This circumvents players immediately being killed when respawning after a fall
+        playerBody.y = -500;
+        playerBody.setAllowGravity(false);
+        playerBody.setVelocity(0, 0);
+
+        const playerSwordBodyOld = this.getAttachedSwordBody(player.id);
+        playerSwordBodyOld.y = -500;
+        playerSwordBodyOld.setAllowGravity(false);
+        playerSwordBodyOld.setVelocity(0, 0);
+      }
+    });
   }
 
   watchForRespawnsAndWin() {
@@ -454,11 +466,22 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         this.respawn(enemyID, spawnPoint.x, spawnPoint.y);
       }
 
+      // If either player enters their opposite "win" room, game over, they win
+
+      if (playerHasChangedRooms) {
+        if (currentRoomName === this.playerWinRooms[player.id]) {
+
+          // Wait 3 seconds, then declare the winner
+          this.clock.setTimeout(() => {
+            this.declareWinner(player.id);
+          }, 3000);
+        }
+      }
+
       // Update for next frame's watch
       this.playerRooms[player.id] = currentRoomName;
     });
 
-    // If either player enters their opposite "win" room, game over, they win
   }
 
   syncHitboxDebug() {
@@ -472,48 +495,55 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   moveHeldSwords() {
     this.state.players.forEach((player, playerID) => {
       const isPlayerHoldingSword = (player.animPrefix === 'sword');
-      const sword = this.state.objects.get(`sword_${playerID}`);
-      const hitboxDebug = this.state.hitboxDebug.get(`sword_${playerID}`);
+      const sword = this.getAttachedSword(playerID);
+      const swordBody = this.getAttachedSwordBody(playerID);
+      
+      if (sword !== null) {
+        const hitboxDebug = this.state.hitboxDebug.get(sword.id);
+  
+        hitboxDebug.isActive = sword.isTextureVisible; // If the texture is visible, it means it's been parried or thrown
+  
+        if (isPlayerHoldingSword) {
+          const player = this.state.players.get(playerID);
+  
+          const isSwordOutAnim = (
+            player.anim.startsWith('sword-idle') ||
+            player.anim.startsWith('sword-forstep') ||
+            player.anim.startsWith('sword-backstep')
+          );
+  
+          sword.isActive = isSwordOutAnim;
+          hitboxDebug.isActive = isSwordOutAnim;
 
-      hitboxDebug.isActive = sword.isTextureVisible; // If the texture is visible, it means it's been parried or thrown
-
-      if (isPlayerHoldingSword) {
-        const player = this.state.players.get(playerID);
-
-        const isSwordOutAnim = (
-          player.anim.startsWith('sword-idle') ||
-          player.anim.startsWith('sword-forstep') ||
-          player.anim.startsWith('sword-backstep')
-        );
-
-        sword.isActive = isSwordOutAnim;
-        hitboxDebug.isActive = isSwordOutAnim;
-
-        if (isSwordOutAnim) {
-          // Sync / offset sword in idle & stepping anims
-          const playerBody = this.physicsBodies[playerID];
-          const swordBody = this.physicsBodies[`sword_${playerID}`];
-          const playerX = (playerBody.x + (PLAYER_BODY.width * PLAYER_BODY.originX));
-          const playerY = (playerBody.y + (PLAYER_BODY.height * PLAYER_BODY.originY));
           const flipMod = (player.flipX ? -1 : 1);
           const flipOffset = (player.flipX ? swordBody.width : 0);
-
-          // WARNING -- MAGIC NUMBERS INCOMING
-          if (player.level === 'low') {
-            swordBody.x = playerX + (10 * flipMod) - flipOffset;
-            swordBody.y = playerY - 20;
+  
+          if (isSwordOutAnim) {
+            // Sync / offset sword in idle & stepping anims
+            const playerBody = this.physicsBodies[playerID];
+            const playerX = (playerBody.x + (PLAYER_BODY.width * PLAYER_BODY.originX));
+            const playerY = (playerBody.y + (PLAYER_BODY.height * PLAYER_BODY.originY));
+  
+            // WARNING -- MAGIC NUMBERS INCOMING
+            if (player.level === 'low') {
+              swordBody.x = playerX + (10 * flipMod) - flipOffset;
+              swordBody.y = playerY - 20;
+            }
+            else if (player.level === 'mid') {
+              swordBody.x = playerX + (8 * flipMod) - flipOffset;
+              swordBody.y = playerY - 28;
+            }
+            else if (player.level === 'high') {
+              swordBody.x = playerX + (8 * flipMod) - flipOffset;
+              swordBody.y = playerY - 40;
+            }
+  
+            // Adjust for additional x offset
+            swordBody.x += (player.xSwordOffset * flipMod);
           }
-          else if (player.level === 'mid') {
-            swordBody.x = playerX + (8 * flipMod) - flipOffset;
-            swordBody.y = playerY - 28;
+          else {
+            swordBody.x += ((player.xSwordOffset * flipMod) - flipOffset);
           }
-          else if (player.level === 'high') {
-            swordBody.x = playerX + (8 * flipMod) - flipOffset;
-            swordBody.y = playerY - 40;
-          }
-
-          // Adjust for additional x offset
-          swordBody.x += (player.xSwordOffset * flipMod);
         }
       }
     });
@@ -549,10 +579,17 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     this.physicsBodies[playerID].x = x;
     this.physicsBodies[playerID].y = y;
+    this.physicsBodies[playerID].setAllowGravity(true);
 
     player.isDead = false;
     player.animMode = 'loop';
+    player.animPrefix = 'sword';
+    player.level = 'mid';
     player.anim = `${player.animPrefix}-flip`;
+
+    this.givePlayerSword(playerID);
+    const sword = this.getAttachedSword(playerID);
+    this.initSwordOverlaps(sword.id);
 
     this.broadcast('player-respawn', playerID);
   }
@@ -576,6 +613,169 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     });
 
     return furthestSpawnPoint;
+  }
+
+  getAttachedSword(playerID: string): AbstractObject {
+    let sword = null;
+    
+    this.state.objects.forEach((object) => {
+      if (object.texture === 'sword' && object.attachedTo === playerID) {
+        sword = object;
+      }
+    });
+
+    return sword;
+  }
+
+  getAttachedSwordBody(playerID: string): Body {
+    const sword = this.getAttachedSword(playerID);
+
+    if (sword === null) {
+      return null;
+    }
+    else {
+      return this.physicsBodies[sword.id];
+    }
+  }
+
+  givePlayerSword(playerID: string) {
+    // Add state object for sword
+    const swordID = `sword_${uuidv4()}`;
+    this.state.objects.set(swordID, new AbstractObject(
+      swordID,
+      0,
+      0,
+      OBJECT_BODIES['sword'].width,
+      OBJECT_BODIES['sword'].height,
+      OBJECT_BODIES['sword'].originX,
+      OBJECT_BODIES['sword'].originY,
+      'sword',
+      playerID
+    ));
+
+    // Add body for sword
+    this.createPhysicsBody(
+      swordID,
+      0,
+      0,
+      OBJECT_BODIES['sword'].width,
+      OBJECT_BODIES['sword'].height
+    );
+
+    // Disable gravity on the sword body
+    this.physicsBodies[swordID].setAllowGravity(false);
+  }
+
+  initSwordOverlaps(swordID: string) {
+    const sword = this.state.objects.get(swordID);
+    const swordBody = this.physicsBodies[swordID];
+
+    // Initialize sword touching each player
+    this.state.players.forEach((player) => {
+      const playerBody = this.physicsBodies[player.id];
+
+      // Sword vs player generic
+      this.physics.add.overlap(swordBody, playerBody, () => {
+        const swordIsOwnedByPlayer = (sword.attachedTo === player.id);
+
+        if (!swordIsOwnedByPlayer) {
+          const enemyID = this.getOtherPlayerID(player.id);
+
+          if (enemyID !== '') {
+            const swordIsOwnedByEnemy = (sword.attachedTo === enemyID);
+            const swordIsHot = (swordIsOwnedByEnemy || swordBody.velocity.x !== 0);
+      
+            if (swordIsHot) {
+              if (player.animPrefix === 'sword') {
+                this.disarmPlayer(player.id, 'up');
+              }
+              this.killPlayer(player.id);
+            }
+          }
+        }
+      });
+    });
+
+    // Initialize sword touching each sword
+    this.state.objects.forEach((object) => {
+      // Make sure we're only examining OTHER SWORDS
+      if (object.texture === 'sword' && object.id !== swordID) {
+        let overlapExists = false;
+        const otherSwordBody = this.physicsBodies[object.id];
+
+        // Iterate over all active colliders in physics world
+        this.physics.world.colliders.getActive().forEach((collider) => {
+          // Only check overlaps, not colliders
+          if (collider.overlapOnly) {
+            if (
+              collider.object1 === swordBody && collider.object2 === otherSwordBody ||
+              collider.object2 === swordBody && collider.object1 === otherSwordBody
+            ) {
+              overlapExists = true;
+            }
+          }
+        });
+
+        // If no overlap between these two swords exists yet, make one
+        if (!overlapExists) {
+          this.physics.add.overlap(swordBody, otherSwordBody, () => {
+            const bothSwordsAreHeld = (sword.attachedTo !== '' && object.attachedTo !== '');
+
+            if (bothSwordsAreHeld) {
+              const player = this.state.players.get(sword.attachedTo);
+              const enemy = this.state.players.get(object.attachedTo);
+              const playerBody = this.physicsBodies[player.id];
+              const enemyBody = this.physicsBodies[enemy.id];
+
+              const doBounce = (player.animPrefix === 'sword' && enemy.animPrefix === 'sword' && player.level === enemy.level && !player.isInputLocked && !enemy.isInputLocked);
+  
+              if (doBounce) {
+                const playerDir = (player.flipX ? 1 : -1);
+                const enemyDir = (enemy.flipX ? 1 : -1);
+  
+                playerBody.setVelocityX(SWORD_BOUNCEBACK * playerDir);
+                enemyBody.setVelocityX(SWORD_BOUNCEBACK * enemyDir);
+  
+                player.isInputLocked = true;
+                enemy.isInputLocked = true;
+  
+                this.clock.setTimeout(() => {
+                  player.isInputLocked = false;
+                  enemy.isInputLocked = false;
+                }, SWORD_BOUNCEBACK_DELAY);
+              }
+            }
+          });
+        }
+      }
+    });
+  }
+
+  disarmPlayer(playerID: string, direction: string) {
+    const player = this.state.players.get(playerID);
+    const sword = this.getAttachedSword(playerID);
+    const swordBody = this.getAttachedSwordBody(playerID);
+
+    // Disarm enemy
+    player.animPrefix = 'nosword';
+    
+    // Set sword texture to active
+    sword.isTextureVisible = true;
+
+    // Set sword so it's no longer attached to enemy
+    sword.attachedTo = '';
+
+    // Flip sword according to player
+    sword.flipX = player.flipX;
+
+    // Set sword body velocity (*(+/-)1(flipX?))
+    swordBody.setVelocityY((direction === 'up' ? -1 : 1) * DISARM_VELOCITY);
+
+    // Enable gravity on sword
+    swordBody.setAllowGravity(true);
+
+    // Add collider w/ map so sword will land
+    this.physics.add.collider(swordBody, this.physicsMap);
   }
 
   onJoin (client: Client, options: any) {
@@ -610,6 +810,17 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       spawnY = spawnPoint.y;
     }
 
+    // Determine which room player needs to reach to win
+    const didSpawnOnLeftSide = (spawnX === 5920);
+    const didSpawnOnRightSide = !didSpawnOnLeftSide;
+
+    if (didSpawnOnLeftSide) {
+      this.playerWinRooms[client.sessionId] = 'room_R6';
+    }
+    else if (didSpawnOnRightSide) {
+      this.playerWinRooms[client.sessionId] = 'room_L6';
+    }
+
     // Add body for player
     this.createPhysicsBody(
       client.sessionId,
@@ -619,29 +830,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       PLAYER_BODY.height
     );
 
-    // Add state object for sword
-    this.state.objects.set(`sword_${client.sessionId}`, new AbstractObject(
-      `sword_${client.sessionId}`,
-      spawnX,
-      spawnY,
-      OBJECT_BODIES['sword'].width,
-      OBJECT_BODIES['sword'].height,
-      OBJECT_BODIES['sword'].originX,
-      OBJECT_BODIES['sword'].originY,
-      'sword'
-    ));
-
-    // Add body for sword
-    this.createPhysicsBody(
-      `sword_${client.sessionId}`,
-      spawnX,
-      spawnY,
-      OBJECT_BODIES['sword'].width,
-      OBJECT_BODIES['sword'].height
-    );
-
-    // Disable gravity on the sword body
-    this.physicsBodies[`sword_${client.sessionId}`].setAllowGravity(false);
+    this.givePlayerSword(client.sessionId);
 
     // Add player v map collision detection
     this.playerColliders[client.sessionId] = this.physics.add.collider(
@@ -651,70 +840,40 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     // If both players have spawned, register sword overlaps
     if (enemyID !== '') {
-      const player = this.state.players.get(client.sessionId);
-      const enemy = this.state.players.get(enemyID);
-      const playerBody = this.physicsBodies[client.sessionId];
-      const enemyBody = this.physicsBodies[enemyID];
-      const playerSword = this.physicsBodies[`sword_${client.sessionId}`];
-      const enemySword = this.physicsBodies[`sword_${enemyID}`];
+      this.state.objects.forEach((object) => {
+        const isSword = (object.id.startsWith('sword_'));
 
-      // Player sword vs enemy body
-      this.physics.add.overlap(playerSword, enemyBody, () => {
-        const swordIsHot = (typeof player !== 'undefined' && (player.animPrefix === 'sword' || playerSword.velocity.x !== 0));
-
-        if (swordIsHot) {
-          this.killPlayer(enemyID);
-        }
-      });
-
-      // Enemy sword vs player body
-      this.physics.add.overlap(enemySword, playerBody, () => {
-        const swordIsHot = (typeof enemy !== 'undefined' && (enemy.animPrefix === 'sword' || enemySword.velocity.x !== 0));
-
-        if (swordIsHot) {
-          this.killPlayer(client.sessionId);
-        }
-      });
-
-      // Sword vs sword (same-level knocback)
-      this.physics.add.overlap(playerSword, enemySword, () => {
-        const doBounce = (player.animPrefix === 'sword' && enemy.animPrefix === 'sword' && player.level === enemy.level);
-
-        if (doBounce) {
-          const playerDir = (player.flipX ? 1 : -1);
-          const enemyDir = (enemy.flipX ? 1 : -1);
-
-          playerBody.setVelocityX(SWORD_BOUNCEBACK * playerDir);
-          enemyBody.setVelocityX(SWORD_BOUNCEBACK * enemyDir);
-
-          player.isInputLocked = true;
-          enemy.isInputLocked = true;
-
-          this.clock.setTimeout(() => {
-            player.isInputLocked = false;
-            enemy.isInputLocked = false;
-          }, SWORD_BOUNCEBACK_DELAY);
+        if (isSword) {
+          this.initSwordOverlaps(object.id);
         }
       });
     }
   }
 
   onLeave (client: Client, consented: boolean) {
-    console.log(client.sessionId, "left!");
+    console.log('Client id', client.sessionId, 'has left');
 
-    // Delete state reference
-    this.state.players.delete(client.sessionId);
+    const otherPlayerID = this.getOtherPlayerID(client.sessionId);
 
-    // Delete hitboxDebug reference
-    this.state.hitboxDebug.delete(client.sessionId);
-
-    // Destroy & delete physics body
-    this.physicsBodies[client.sessionId].destroy();
-    delete this.physicsBodies[client.sessionId];
+    if (otherPlayerID !== '') {
+      console.log('Client id', otherPlayerID, 'wins by default.');
+      this.declareWinner(otherPlayerID, true);
+    }
   }
 
   onDispose() {
     console.log("room", this.roomId, "disposing...");
+  }
+
+  declareWinner(playerID: string, winnerByDefault: boolean = false) {
+    const winningPlayer = this.state.players.get(playerID);
+
+    this.broadcast('game-over', {
+      winnerName: winningPlayer.playerName,
+      winnerByDefault
+    });
+
+    this.disconnect();
   }
 
 }
