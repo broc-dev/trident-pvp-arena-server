@@ -541,9 +541,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             // Adjust for additional x offset
             swordBody.x += (player.xSwordOffset * flipMod);
           }
-          else {
-            swordBody.x += ((player.xSwordOffset * flipMod) - flipOffset);
-          }
+          // else {
+          //   // swordBody.x += ((player.xSwordOffset * flipMod) - flipOffset);
+          // }
         }
       }
     });
