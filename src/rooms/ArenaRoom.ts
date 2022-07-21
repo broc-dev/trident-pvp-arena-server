@@ -46,6 +46,9 @@ const LUNGE_VELOCITY = 120;
 const SWORD_BOUNCEBACK = 120;
 const SWORD_BOUNCEBACK_DELAY = 150;
 
+const KICK_DOWNWARDS_VELOCITY = 400;
+const KICK_BOUNCEBACK_DELAY = 350;
+
 const MAX_SPEED = 360;
 const ACCELERATION = 30;
 
@@ -75,13 +78,20 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   playerRooms: Record<string, string> = {};
   playerWinRooms: Record<string, string> = {};
   killCounts: Record<string, number> = {};
+  playerData: Record<string, Record<string, any>> = {};
+  initPlayerData: Record<string, any> = {
+    isJumpKicking: false
+  };
+  firstPlayerID: string = '';
 
-  createPhysicsBody(id: string, x: number, y: number, width: number, height: number) {
+  createPhysicsBody(id: string, x: number, y: number, width: number, height: number): Body {
     this.physicsBodies[id] = this.physics.add.body(x, y, width, height);
     
     if (DEBUG_ENABLED) {
       this.state.hitboxDebug.set(id, new HitboxDebug(id, x, y, width, height));
     }
+
+    return this.physicsBodies[id];
   }
 
   getOtherPlayerID(sessionId: string): string {
@@ -126,6 +136,18 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     else if (typeof player === 'undefined') {
       console.log(`Player ${playerID} no longer exists, cannot kill`);
     }
+  }
+
+  doJumpKick(playerID: string) {
+    const playerBody = this.physicsBodies[playerID];
+    const player = this.state.players.get(playerID);
+
+    this.playerData[playerID].isJumpKicking = true;
+
+    const kickVelX = ((player.flipX ? -1 : 1) * MAX_SPEED * 2);
+    const kickVelY = KICK_DOWNWARDS_VELOCITY;
+
+    playerBody.setVelocity(kickVelX, kickVelY);
   }
 
   doAttack(playerID: string) {
@@ -217,6 +239,14 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       const enemyID = this.getOtherPlayerID(client.sessionId);
       const isGrounded = (playerBody.blocked.down);
       const hasSword = (player.animPrefix === 'sword');
+      const doResetJumpKick = (this.playerData[client.sessionId].isJumpKicking && isGrounded);
+
+      // Reset jumpkick when they hit the ground
+      if (doResetJumpKick) {
+        this.playerData[client.sessionId].isJumpKicking = false;
+      }
+      
+      const {isJumpKicking} = this.playerData[client.sessionId];
 
       if (!player.isDead && !player.isInputLocked) {
         // Attack (or throw attack)
@@ -261,8 +291,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
           this.doAttack(client.sessionId);
         }
+        else if (!isGrounded && doAttack && !isJumpKicking) {
+          this.doJumpKick(client.sessionId);
+        }
         // Move / Idle / Default animation logic
-        else if (!throwReady) {
+        else if (!throwReady && !isJumpKicking) {
           // L/R movement
           if (left) {
             if (player.velX > -MAX_SPEED) {
@@ -329,7 +362,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         }
   
         // Animation logic
-        if (hasSword && isGrounded && doThrowAttack) {
+        if (isJumpKicking) {
+          player.animMode = 'loop';
+          player.anim = `${player.animPrefix}-jumpkick`;
+        }
+        else if (hasSword && isGrounded && doThrowAttack) {
           player.animMode = 'play-hold';
           player.anim = 'sword-throw-attack';
           player.animPrefix = 'nosword'; // Must be changed AFTER sending anim key
@@ -726,8 +763,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       // Sword vs player generic
       this.physics.add.overlap(swordBody, playerBody, () => {
         const swordIsOwnedByPlayer = (sword.attachedTo === player.id);
+        const {isJumpKicking} = this.playerData[player.id];
 
-        if (!swordIsOwnedByPlayer) {
+        if (!swordIsOwnedByPlayer && !isJumpKicking) {
           const enemyID = this.getOtherPlayerID(player.id);
 
           if (enemyID !== '') {
@@ -805,30 +843,37 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     const sword = this.getAttachedSword(playerID);
     const swordBody = this.getAttachedSwordBody(playerID);
 
-    // Disarm enemy
-    player.animPrefix = 'nosword';
-    
-    // Set sword texture to active
-    sword.isTextureVisible = true;
-
-    // Set sword so it's no longer attached to enemy
-    sword.attachedTo = '';
-
-    // Flip sword according to player
-    sword.flipX = player.flipX;
-
-    // Set sword body velocity (*(+/-)1(flipX?))
-    swordBody.setVelocityY((direction === 'up' ? -1 : 1) * DISARM_VELOCITY);
-
-    // Enable gravity on sword
-    swordBody.setAllowGravity(true);
-
-    // Add collider w/ map so sword will land
-    this.physics.add.collider(swordBody, this.physicsMap);
+    if (player.animPrefix === 'sword') {
+      // Disarm enemy
+      player.animPrefix = 'nosword';
+      
+      // Set sword texture to active
+      sword.isTextureVisible = true;
+  
+      // Set sword so it's no longer attached to enemy
+      sword.attachedTo = '';
+  
+      // Flip sword according to player
+      sword.flipX = player.flipX;
+  
+      // Set sword body velocity (*(+/-)1(flipX?))
+      swordBody.setVelocityY((direction === 'up' ? -1 : 1) * DISARM_VELOCITY);
+  
+      // Enable gravity on sword
+      swordBody.setAllowGravity(true);
+  
+      // Add collider w/ map so sword will land
+      this.physics.add.collider(swordBody, this.physicsMap);
+    }
   }
 
   onJoin (client: Client, options: any) {
     console.log(client.sessionId, "joined as", options.playerName);
+
+    // Initialize playerData
+    this.playerData[client.sessionId] = {
+      ...this.initPlayerData
+    };
 
     // Init player kill count
     this.killCounts[client.sessionId] = 0;
@@ -854,6 +899,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       const spawnPoint = spawnPoints[getRandomInt(0, spawnPoints.length - 1)];
       spawnX = spawnPoint.x;
       spawnY = spawnPoint.y;
+
+      this.firstPlayerID = client.sessionId;
     }
     else {
       const enemyBody = this.physicsBodies[enemyID];
@@ -874,7 +921,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     }
 
     // Add body for player
-    this.createPhysicsBody(
+    const playerBody = this.createPhysicsBody(
       client.sessionId,
       spawnX,
       spawnY,
@@ -890,13 +937,69 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       this.physicsMap
     );
 
-    // If both players have spawned, register sword overlaps
     if (enemyID !== '') {
+      const enemyBody = this.physicsBodies[enemyID];
+      
+      // If both players have spawned, register sword overlaps
       this.state.objects.forEach((object) => {
         const isSword = (object.id.startsWith('sword_'));
 
         if (isSword) {
           this.initSwordOverlaps(object.id);
+        }
+      });
+
+      // Check for player vs player overlaps (for dropkicks)
+      this.physics.add.overlap(playerBody, enemyBody, () => {
+        const {isJumpKicking: playerIsJumpKicking} = this.playerData[client.sessionId];
+        const {isJumpKicking: enemyIsJumpKicking} = this.playerData[enemyID];
+        const player = this.state.players.get(client.sessionId);
+        const enemy = this.state.players.get(enemyID);
+
+        if (playerIsJumpKicking && enemyIsJumpKicking) {
+          // Handle jumpkick vs jumpkick collision
+        }
+        else if (playerIsJumpKicking) {
+          // Disarm enemy
+          this.disarmPlayer(enemyID, 'up');
+          
+          player.isInputLocked = true;
+          enemy.isInputLocked = true;
+
+          player.anim = `${player.animPrefix}-flip`;
+          enemy.anim = `${enemy.animPrefix}-flip`;
+
+          const playerDir = (player.flipX ? 1 : -1);
+          const enemyDir = (enemy.flipX ? 1 : -1);
+          
+          playerBody.setVelocity(playerDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
+          enemyBody.setVelocity(enemyDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
+
+          this.clock.setTimeout(() => {
+            player.isInputLocked = false;
+            enemy.isInputLocked = false;
+          }, KICK_BOUNCEBACK_DELAY);
+        }
+        else if (enemyIsJumpKicking) {
+          // Disarm player
+          this.disarmPlayer(client.sessionId, 'up');
+
+          player.isInputLocked = true;
+          enemy.isInputLocked = true;
+
+          player.anim = `${player.animPrefix}-flip`;
+          enemy.anim = `${enemy.animPrefix}-flip`;
+
+          const playerDir = (player.flipX ? 1 : -1);
+          const enemyDir = (enemy.flipX ? 1 : -1);
+          
+          playerBody.setVelocity(playerDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
+          enemyBody.setVelocity(enemyDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
+
+          this.clock.setTimeout(() => {
+            player.isInputLocked = false;
+            enemy.isInputLocked = false;
+          }, KICK_BOUNCEBACK_DELAY);
         }
       });
     }
