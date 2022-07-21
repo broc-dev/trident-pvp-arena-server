@@ -1,4 +1,4 @@
-import { Room, Client } from "colyseus";
+import { Room, Client, ServerError } from "colyseus";
 import { AbstractObject, ArenaRoomState, HitboxDebug, Player } from "./schema/ArenaRoomState";
 import { ArcadePhysics } from 'arcade-physics';
 import { Body } from 'arcade-physics/lib/physics/arcade/Body';
@@ -65,6 +65,7 @@ function getRandomInt(min: number, max: number) {
 
 export class ArenaRoom extends Room<ArenaRoomState> {
 
+  gameOver: boolean = false;
   maxClients: number = 2;
   physicsBodies: Record<string, Body> = {};
   playerColliders: Record<string, any> = {};
@@ -96,6 +97,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
   killPlayer(playerID: string) {
     const player = this.state.players.get(playerID);
+    const killerID = this.getOtherPlayerID(playerID);
+    const killer = this.state.players.get(this.getOtherPlayerID(playerID)).playerName;
+    // If player is dead, don't kill again or if game is over
+    if(this.state.players.get(playerID).isDead || this.gameOver) return;
+
+    // Kill player
+    player.isDead = true;
+
+    console.log(`${killerID} [${killer}] killed ${playerID} [${player.playerName}]`);
 
     if (typeof player !== 'undefined' && !player.isDead) {
       // Prevent movement after death
@@ -112,6 +122,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
   doAttack(playerID: string) {
     const player = this.state.players.get(playerID);
+
+    // Start clock 
+    this.clock.start();
     
     // Lock input
     player.isInputLocked = true;
@@ -138,6 +151,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
   onCreate (options: any) {
     this.setState(new ArenaRoomState());
+
+    // @todo This might help reduce latency but it might also overload the server
+    this.setPatchRate(16.6);
 
     this.onMessage('change-stance', (client: Client, data: Record<string, string>) => {
       const {direction} = data;
@@ -401,7 +417,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   update(deltaTime: any) {
     this.physics.world.update(this.physicsTick * 1000, 1000 / FPS);
     this.physicsTick++;
-
     this.moveHeldSwords();
     this.syncStateWithPhysics();
     this.syncHitboxDebug();
@@ -487,8 +502,12 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   syncHitboxDebug() {
     this.state.hitboxDebug.forEach((hitbox, id) => {
       const body = this.physicsBodies[id];
-      hitbox.x = body.x;
-      hitbox.y = body.y;
+      try {
+        hitbox.x = body.x;
+        hitbox.y = body.y;
+      } catch (err) {
+        console.log(err);
+      }
     });
   }
 
@@ -851,7 +870,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   }
 
   onLeave (client: Client, consented: boolean) {
-    console.log('Client id', client.sessionId, 'has left');
+    console.log(`${client.sessionId} [${this.state.players.get(client.sessionId).playerName}] ${consented ? 'left!' : 'was disconnected!'}`);
 
     const otherPlayerID = this.getOtherPlayerID(client.sessionId);
 
@@ -862,7 +881,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   }
 
   onDispose() {
-    console.log("room", this.roomId, "disposing...");
+    console.log("Room", this.roomId, "disposing...");
   }
 
   declareWinner(playerID: string, winnerByDefault: boolean = false) {
