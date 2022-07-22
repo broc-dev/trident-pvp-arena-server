@@ -83,6 +83,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     isJumpKicking: false
   };
   firstPlayerID: string = '';
+  secondPlayerID: string = '';
 
   createPhysicsBody(id: string, x: number, y: number, width: number, height: number): Body {
     this.physicsBodies[id] = this.physics.add.body(x, y, width, height);
@@ -907,6 +908,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       const spawnPoint = this.getFurthestSpawnPointInRoom('room_0', enemyBody.x);
       spawnX = spawnPoint.x;
       spawnY = spawnPoint.y;
+
+      this.secondPlayerID = client.sessionId;
     }
 
     // Determine which room player needs to reach to win
@@ -914,10 +917,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     const didSpawnOnRightSide = !didSpawnOnLeftSide;
 
     if (didSpawnOnLeftSide) {
-      this.playerWinRooms[client.sessionId] = 'room_R6';
+      this.playerWinRooms[client.sessionId], this.state.players.get(client.sessionId).winRoom = 'room_R6';
     }
     else if (didSpawnOnRightSide) {
-      this.playerWinRooms[client.sessionId] = 'room_L6';
+      this.playerWinRooms[client.sessionId], this.state.players.get(client.sessionId).winRoom = 'room_L6';
     }
 
     // Add body for player
@@ -938,6 +941,21 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     );
 
     if (enemyID !== '') {
+      // Broadcast rooms to both players
+      this.broadcast('player-data', {
+        playerOne: {
+          name: this.state.players.get(this.firstPlayerID).playerName,
+          id: this.firstPlayerID,
+          room: this.playerWinRooms[this.firstPlayerID]
+        },
+        playerTwo: 
+        {
+          name: this.state.players.get(this.secondPlayerID).playerName,
+          id: this.secondPlayerID,
+          room: this.playerWinRooms[this.secondPlayerID]
+        },
+      });
+
       const enemyBody = this.physicsBodies[enemyID];
       
       // If both players have spawned, register sword overlaps

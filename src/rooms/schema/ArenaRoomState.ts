@@ -120,6 +120,9 @@ export class Player extends Schema {
   @type('string')
   id: string = '';
 
+  @type('string')
+  winRoom: string = '';
+
   @type('number')
   velX: number = 0;
 
