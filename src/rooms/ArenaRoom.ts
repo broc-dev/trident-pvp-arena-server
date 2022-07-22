@@ -266,6 +266,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   
           // Flip sword according to player
           sword.flipX = player.flipX;
+
+          // Set sword to lethal
+          sword.isLethal = true;
+          this.state.hitboxDebug.get(sword.id).isLethal = true;
   
           // Disable gravity when thrown
           swordBody.setAllowGravity(false);
@@ -589,9 +593,12 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         const hitboxDebug = this.state.hitboxDebug.get(sword.id);
   
         hitboxDebug.isActive = sword.isTextureVisible; // If the texture is visible, it means it's been parried or thrown
-  
+
         if (isPlayerHoldingSword) {
           const player = this.state.players.get(playerID);
+
+          sword.isLethal = true;
+          this.state.hitboxDebug.get(sword.id).isLethal = true;
   
           const isSwordOutAnim = (
             player.anim.startsWith('sword-idle') ||
@@ -856,6 +863,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   
       // Flip sword according to player
       sword.flipX = player.flipX;
+
+      // Set sword to non-lethal
+      sword.isLethal = false;
+      this.state.hitboxDebug.get(sword.id).isLethal = false;
   
       // Set sword body velocity (*(+/-)1(flipX?))
       swordBody.setVelocityY((direction === 'up' ? -1 : 1) * DISARM_VELOCITY);

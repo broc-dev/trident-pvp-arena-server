@@ -19,6 +19,9 @@ export class HitboxDebug extends Schema {
   @type('boolean')
   isActive: boolean = true;
 
+  @type('boolean')
+  isLethal: boolean = false;
+
   constructor(id: string, x: number, y: number, width: number, height: number) {
     super();
     this.id = id;
@@ -26,6 +29,10 @@ export class HitboxDebug extends Schema {
     this.y = y;
     this.width = width;
     this.height = height;
+  }
+
+  setLethal(lethality: boolean) {
+    this.isLethal = lethality;
   }
 }
 
@@ -63,6 +70,9 @@ export class AbstractObject extends Schema {
   @type('boolean')
   isActive: boolean = true;
 
+  @type('boolean')
+  isLethal: boolean = false;
+  
   @type('string')
   attachedTo: string = '';
 
