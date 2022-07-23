@@ -261,15 +261,21 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       }
       
       const {isJumpKicking} = this.playerData[client.sessionId];
-
+      
       if (!player.isDead && !player.isInputLocked) {
         // Attack (or throw attack)
-        const throwReady = (player.level === 'high' && up);
+        const throwReady = (player.level === 'high' && up && player.velX === 0 && !isJumpKicking);
         const doThrowAttack = (throwReady && doAttack);
   
         if (isGrounded && hasSword && doThrowAttack) {
           const sword = this.getAttachedSword(client.sessionId);
           const swordBody = this.getAttachedSwordBody(client.sessionId);
+
+          const playerX = (playerBody.x + (PLAYER_BODY.width * PLAYER_BODY.originX));
+          const playerY = (playerBody.y + (PLAYER_BODY.height * PLAYER_BODY.originY));
+
+          const flipMod = (player.flipX ? -1 : 1);
+          const flipOffset = (player.flipX ? swordBody.width : 0);
 
           // Enable sword texture
           sword.isTextureVisible = true;
@@ -283,6 +289,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           // Set sword to lethal
           sword.isLethal = true;
           this.state.hitboxDebug.get(sword.id).isLethal = true;
+
+          swordBody.x = playerX + (8 * flipMod) - flipOffset;
+          swordBody.y = playerY - 40;
   
           // Disable gravity when thrown
           swordBody.setAllowGravity(false);
@@ -355,8 +364,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
             playerBody.setSize(PLAYER_BODY.width, PLAYER_BODY.height - 18, false);
             playerBody.y += 18;
-
-            console.log(playerBody.gameObject);
 
             playerBody.setVelocityY(-PLAYER_JUMP_FORCE);
           }
@@ -573,7 +580,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         !['room_L6', 'room_R6'].includes(currentRoomName)
       );
 
-      if(player.isDead && enemy.isDead) {
+      if((player !== null && enemy !== null) && player.isDead && enemy.isDead) {
         this.clock.setTimeout(() => {
           const spawnLeft  = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0').at(0);
           const spawnRight = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0').at(1);
@@ -666,11 +673,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             // WARNING -- MAGIC NUMBERS INCOMING
             if (player.level === 'low') {
               swordBody.x = playerX + (10 * flipMod) - flipOffset;
-              swordBody.y = playerY - 20;
+              swordBody.y = playerY - 19;
             }
             else if (player.level === 'mid') {
               swordBody.x = playerX + (8 * flipMod) - flipOffset;
-              swordBody.y = playerY - 28;
+              swordBody.y = playerY - 27;
             }
             else if (player.level === 'high') {
               swordBody.x = playerX + (8 * flipMod) - flipOffset;
@@ -763,8 +770,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       // Find the spawn point directly after current enemy player position
       for (var i = 0; i < spawnPointsInOrder.length; i++) {
         if(spawnPointsInOrder.at(i).x > enemy.x) {
-          // Get spawnpoint in correct direction 
-          console.log(spawnPointsInOrder.at(i + direction));
+          // Get spawnpoint in correct direction
           playerSpawnPoint = spawnPointsInOrder.at(i + direction);
           break
         }
@@ -776,8 +782,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   getFurthestSpawnPointInRoom(roomName: string, targetX: number) {
     const spawnPoints = MAP_DATA.spawn_points.filter((room) => room.room === roomName);
     let furthestSpawnPoint: any = null;
-
-    console.log(spawnPoints[0].x);
 
     spawnPoints.forEach((spawnPoint) => {
       if (furthestSpawnPoint === null) {
