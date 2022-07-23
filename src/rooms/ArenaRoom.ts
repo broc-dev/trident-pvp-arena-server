@@ -148,15 +148,13 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     const playerBody = this.physicsBodies[playerID];
     const player = this.state.players.get(playerID);
 
-    if(Math.abs(playerBody.velocity.x) < 250) return
-
     this.playerData[playerID].isJumpKicking = true;
 
     // Kick X velocity influenced by player's current X velocity
     const kickVelX = (
       (player.flipX ? -1 : 1)
       // * MAX_SPEED * 2
-      * (Math.abs(playerBody.velocity.x) + 100)
+      * (Math.abs(0.5 * playerBody.velocity.x) + 260)
     );
     const kickVelY = (-1 * Math.abs(playerBody.velocity.y)) + 150;
     // const kickVelY = KICK_DOWNWARDS_VELOCITY;
@@ -362,8 +360,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             // @todo Change player hitbox to be smaller when jumping
             player.isJumping = true;
 
-            playerBody.setSize(PLAYER_BODY.width, PLAYER_BODY.height - 18, false);
-            playerBody.y += 18;
+            // playerBody.setSize(PLAYER_BODY.width, PLAYER_BODY.height - 18, false);
+            // playerBody.y += 18;
 
             playerBody.setVelocityY(-PLAYER_JUMP_FORCE);
           }
@@ -381,6 +379,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
                   if (isTouchingSword) {
                     object.attachedTo = player.id;
+                    // @todo Remove logging
+                    console.log(`[${player.playerName}] picked up ${object.id}`);
                     object.isTextureVisible = false;
                     swordBody.setAllowGravity(false);
                     player.animPrefix = 'sword';
@@ -563,7 +563,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         enemy = this.state.players.get(enemyID);
       }
 
-      let currentRoomName = null;
+      let currentRoomName = '';
   
       MAP_DATA.rooms.forEach((r) => {
         const {x: rx, width} = r;
@@ -580,6 +580,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         !['room_L6', 'room_R6'].includes(currentRoomName)
       );
 
+      // If both players are dead, respawn both at the same time in 2 seconds.
       if((player !== null && enemy !== null) && player.isDead && enemy.isDead) {
         this.clock.setTimeout(() => {
           const spawnLeft  = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0').at(0);
@@ -593,18 +594,34 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             this.respawn(player.id, spawnRight.x, spawnRight.y);
             this.respawn(enemyID, spawnLeft.x, spawnLeft.y);
           }
-        }, 1000);
+        }, 2000);
       }
 
       if (doRespawnEnemy) {
-        // const spawnPoint = this.getFurthestSpawnPointInRoom(currentRoomName, x);
+        // Respawn the dead player based on their enemy's win room and if the lastKiller is their enemy as well
         const spawnPoint = this.getNextPlayerSpawnPoint(enemy);
+        debugger
         this.respawn(enemyID, spawnPoint.x, spawnPoint.y);
       }
 
-      // If either player enters their opposite "win" room, game over, they win
-
+      
+      // Various checks to make when player changes rooms
       if (playerHasChangedRooms) {
+        // Check if any players need to be respawned on player room change. Both players must be alive, otherwise handled above
+        // Strip characters from player room name, then compare (e.g. room_L6 > room_L5)
+        // @todo remove logging
+        console.log(`Player ${player.playerName} in room: ${currentRoomName.replace(/\D/g,'')}`)
+        console.log(`Enemy ${enemy.playerName} in room: ${this.playerRooms[enemyID].replace(/\D/g,'')}`)
+
+        if (currentRoomName.replace(/\D/g,'') > this.playerRooms[enemyID].replace(/\D/g,'')
+          && !['room_L6', 'room_R6'].includes(currentRoomName)
+          && !player.isDead && !enemy.isDead) {
+          const spawnPoint = this.getNextPlayerSpawnPoint(enemy);
+          console.log(`Spawning ${player.playerName} in "${spawnPoint.room}" at X:${spawnPoint.x}, Y:${spawnPoint.y}`)
+          this.respawn(enemyID, spawnPoint.x, spawnPoint.y);
+        }
+
+        // @todo Remove when altar is implemented
         // If the player is the last killer and enters the win room, they win
         if (currentRoomName === this.playerWinRooms[player.id] && this.lastKillerID == player.id) {
           console.log(`${player.id} has entered the win room!`);
@@ -705,8 +722,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         if(body.touching.down && player.isJumping) {
           player.isJumping = false;
 
-          body.setSize(PLAYER_BODY.width, PLAYER_BODY.height, false);
-          body.y -= 19;
+          // @todo Needs to change when jumping hitbox is implemented
+          // body.setSize(PLAYER_BODY.width, PLAYER_BODY.height, false);
+          // body.y -= 19;
 
           body.setOffset(0, 0);
         }
@@ -764,9 +782,22 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     const enemyPlayerID = this.getOtherPlayerID(player.id);
     const enemy = this.state.players.get(enemyPlayerID);
-    // If th other player is alive, and was the last killer, determine which room to spawn in
+    // If the other player is alive, and was the last killer, determine which room to spawn in
     if(!enemy.isDead && this.lastKillerID == enemyPlayerID) {
       const direction = this.playerWinRooms[enemyPlayerID] == 'room_R6' ? 1 : -2;
+      // Find the spawn point directly after current enemy player position
+      for (var i = 0; i < spawnPointsInOrder.length; i++) {
+        if(spawnPointsInOrder.at(i).x > enemy.x) {
+          // Get spawnpoint in correct direction
+          playerSpawnPoint = spawnPointsInOrder.at(i + direction);
+          break
+        }
+      }
+      // If there's no last killer, guess which room to spawn in based on the player furthest from the map mid-point
+    } else {
+      const midPoint = (MAP_DATA.width * MAP_DATA.tile_width) / 2;
+      // If enemy is furthest from the map midPoint, set spawn in room to block them
+      const direction = (Math.abs(midPoint - player.x) > Math.abs(midPoint - enemy.x)) ? 1 : -2;
       // Find the spawn point directly after current enemy player position
       for (var i = 0; i < spawnPointsInOrder.length; i++) {
         if(spawnPointsInOrder.at(i).x > enemy.x) {
@@ -937,6 +968,18 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     });
   }
 
+  // Should put player on the ground and immobilize them for a short period of time
+  // Immobilized for 1.5 seconds
+  playerFallDown(playerID: string) {
+    // @todo change player animation to fall
+
+    // Set player immobilized for 1.5 seconds
+    this.playerData[playerID].isInputLocked = true;
+    this.clock.setTimeout(() => {
+      this.playerData[playerID].isInputLocked = false;
+    }, 1500)
+  }
+
   disarmPlayer(playerID: string, direction: string) {
     const player = this.state.players.get(playerID);
     const sword = this.getAttachedSword(playerID);
@@ -992,13 +1035,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       PLAYER_BODY.height
     ));
 
+    const spawnPoints = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0');
+
     const enemyID = this.getOtherPlayerID(client.sessionId);
     let spawnX = null;
     let spawnY = null;
 
     if (enemyID === '') {
       // We're alone in the room, pick random side of room_0
-      const spawnPoints = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0');
+      
       const spawnPoint = spawnPoints[getRandomInt(0, spawnPoints.length - 1)];
       spawnX = spawnPoint.x;
       spawnY = spawnPoint.y;
@@ -1007,7 +1052,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     }
     else {
       const enemyBody = this.physicsBodies[enemyID];
-      const spawnPoint = this.getFurthestSpawnPointInRoom('room_0', enemyBody.x);
+      // If the first player's win room is on the RIGHT side, he spawned on the LEFT
+      // so, spawn on the RIGHT side (aka LEFT side win room)
+      const spawnPoint = (this.playerWinRooms[this.firstPlayerID] == 'room_R6'
+        ? spawnPoints[1] : spawnPoints[0]);
       spawnX = spawnPoint.x;
       spawnY = spawnPoint.y;
 
@@ -1078,6 +1126,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
         if (playerIsJumpKicking && enemyIsJumpKicking) {
           // @todo Handle jumpkick vs jumpkick collision
+          this.disarmPlayer(player.id, 'up');
+          this.disarmPlayer(enemy.id, 'up');
 
           player.isInputLocked = true;
           enemy.isInputLocked = true;
@@ -1132,6 +1182,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
            */
           // Disarm enemy
           this.disarmPlayer(playerBID, 'up');
+          this.playerFallDown(playerBID);
           
           playerA.isInputLocked = true;
           playerB.isInputLocked = true;
@@ -1142,8 +1193,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           const playerADir = (playerA.flipX ? 1 : -1);
           const playerBDir = (playerB.flipX ? 1 : -1);
           
-          playerABody.setVelocity(playerADir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
-          playerBBody.setVelocity(playerBDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
+          playerABody.setVelocity(playerADir * (0.2 * KICK_DOWNWARDS_VELOCITY), -(PLAYER_JUMP_FORCE * 0.25));
+          playerBBody.setVelocity(playerBDir * KICK_DOWNWARDS_VELOCITY, -(0.35 * PLAYER_JUMP_FORCE));
 
           this.clock.setTimeout(() => {
             // Reset input lock
