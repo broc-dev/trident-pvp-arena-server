@@ -30,10 +30,6 @@ export class HitboxDebug extends Schema {
     this.width = width;
     this.height = height;
   }
-
-  setLethal(lethality: boolean) {
-    this.isLethal = lethality;
-  }
 }
 
 export class AbstractObject extends Schema {
@@ -72,7 +68,7 @@ export class AbstractObject extends Schema {
 
   @type('boolean')
   isLethal: boolean = false;
-  
+
   @type('string')
   attachedTo: string = '';
 
@@ -139,11 +135,17 @@ export class Player extends Schema {
   @type('boolean')
   isDead: boolean = false;
 
+  @type('boolean')
+  isJumping: boolean = false;
+
   @type('number')
   xSwordOffset: number = 0;
 
   @type('boolean')
   isInputLocked: boolean = false;
+
+  @type('boolean')
+  isKicked: boolean = false;
 
   constructor(playerName: string, id: string, width: number, height: number) {
     super();

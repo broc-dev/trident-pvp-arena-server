@@ -78,6 +78,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   playerRooms: Record<string, string> = {};
   playerWinRooms: Record<string, string> = {};
   killCounts: Record<string, number> = {};
+  lastKillerID: string = '';
   playerData: Record<string, Record<string, any>> = {};
   initPlayerData: Record<string, any> = {
     isJumpKicking: false
@@ -110,7 +111,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   killPlayer(playerID: string) {
     const player = this.state.players.get(playerID);
     const killerID = this.getOtherPlayerID(playerID);
-    const killer = this.state.players.get(this.getOtherPlayerID(playerID)).playerName;
+    const killer = this.state.players.get(this.getOtherPlayerID(playerID))?.playerName;
+
+    // Set the lastKillerID to the most recent killer's ID, if its a player
+    if(typeof killerID !== 'undefined') this.lastKillerID = killerID;
+
     // If player is dead, don't kill again or if game is over
     if(this.state.players.get(playerID).isDead || this.gameOver) return;
 
@@ -143,10 +148,18 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     const playerBody = this.physicsBodies[playerID];
     const player = this.state.players.get(playerID);
 
+    if(Math.abs(playerBody.velocity.x) < 250) return
+
     this.playerData[playerID].isJumpKicking = true;
 
-    const kickVelX = ((player.flipX ? -1 : 1) * MAX_SPEED * 2);
-    const kickVelY = KICK_DOWNWARDS_VELOCITY;
+    // Kick X velocity influenced by player's current X velocity
+    const kickVelX = (
+      (player.flipX ? -1 : 1)
+      // * MAX_SPEED * 2
+      * (Math.abs(playerBody.velocity.x) + 100)
+    );
+    const kickVelY = (-1 * Math.abs(playerBody.velocity.y)) + 150;
+    // const kickVelY = KICK_DOWNWARDS_VELOCITY;
 
     playerBody.setVelocity(kickVelX, kickVelY);
   }
@@ -183,7 +196,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   onCreate (options: any) {
     this.setState(new ArenaRoomState());
 
-    // @todo This might help reduce latency but it might also overload the server
+    // Decrease latency through more frequent network updates
     this.setPatchRate(16.6);
 
     this.onMessage('change-stance', (client: Client, data: Record<string, string>) => {
@@ -337,6 +350,14 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     
           // Jump
           if (jump && isGrounded) {
+            // @todo Change player hitbox to be smaller when jumping
+            player.isJumping = true;
+
+            playerBody.setSize(PLAYER_BODY.width, PLAYER_BODY.height - 18, false);
+            playerBody.y += 18;
+
+            console.log(playerBody.gameObject);
+
             playerBody.setVelocityY(-PLAYER_JUMP_FORCE);
           }
 
@@ -502,7 +523,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.state.players.forEach((player) => {
       const playerBody = this.physicsBodies[player.id];
 
-      if (playerBody.y > lowerEdge) {
+      // Check if player is falling, and make sure player hasn't been already killed
+      if (playerBody.y > lowerEdge && !player.isDead) {
         this.killPlayer(player.id);
 
         // This circumvents players immediately being killed when respawning after a fall
@@ -511,9 +533,12 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         playerBody.setVelocity(0, 0);
 
         const playerSwordBodyOld = this.getAttachedSwordBody(player.id);
-        playerSwordBodyOld.y = -500;
-        playerSwordBodyOld.setAllowGravity(false);
-        playerSwordBodyOld.setVelocity(0, 0);
+        // Make sure player has sword before trying to affect sword
+        if(playerSwordBodyOld !== null) {
+          playerSwordBodyOld.y = -500;
+          playerSwordBodyOld.setAllowGravity(false);
+          playerSwordBodyOld.setVelocity(0, 0);
+        }
       }
     });
   }
@@ -548,16 +573,34 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         !['room_L6', 'room_R6'].includes(currentRoomName)
       );
 
+      if(player.isDead && enemy.isDead) {
+        this.clock.setTimeout(() => {
+          const spawnLeft  = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0').at(0);
+          const spawnRight = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0').at(1);
+          if(this.playerWinRooms[player.id] == 'room_R6') {
+            // If the player's win room is room_R6, they spawn on the left side
+            this.respawn(player.id, spawnLeft.x, spawnLeft.y);
+            this.respawn(enemyID, spawnRight.x, spawnRight.y);
+          } else if(this.playerWinRooms[player.id] == 'room_R6') {
+            // If the player's win room is room_R6, they spawn on the right side
+            this.respawn(player.id, spawnRight.x, spawnRight.y);
+            this.respawn(enemyID, spawnLeft.x, spawnLeft.y);
+          }
+        }, 1000);
+      }
+
       if (doRespawnEnemy) {
-        const spawnPoint = this.getFurthestSpawnPointInRoom(currentRoomName, x);
+        // const spawnPoint = this.getFurthestSpawnPointInRoom(currentRoomName, x);
+        const spawnPoint = this.getNextPlayerSpawnPoint(enemy);
         this.respawn(enemyID, spawnPoint.x, spawnPoint.y);
       }
 
       // If either player enters their opposite "win" room, game over, they win
 
       if (playerHasChangedRooms) {
-        if (currentRoomName === this.playerWinRooms[player.id]) {
-
+        // If the player is the last killer and enters the win room, they win
+        if (currentRoomName === this.playerWinRooms[player.id] && this.lastKillerID == player.id) {
+          console.log(`${player.id} has entered the win room!`);
           // Wait 3 seconds, then declare the winner
           this.clock.setTimeout(() => {
             this.declareWinner(player.id);
@@ -575,6 +618,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.state.hitboxDebug.forEach((hitbox, id) => {
       const body = this.physicsBodies[id];
       try {
+        hitbox.width = body.width;
+        hitbox.height = body.height;
         hitbox.x = body.x;
         hitbox.y = body.y;
       } catch (err) {
@@ -649,6 +694,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       
       if (physicsBodyExists) {
         const body = this.physicsBodies[sessionId];
+
+        if(body.touching.down && player.isJumping) {
+          player.isJumping = false;
+
+          body.setSize(PLAYER_BODY.width, PLAYER_BODY.height, false);
+          body.y -= 19;
+
+          body.setOffset(0, 0);
+        }
         
         player.x = (body.x + (PLAYER_BODY.width * PLAYER_BODY.originX));
         player.y = (body.y + (PLAYER_BODY.height * PLAYER_BODY.originY));
@@ -688,9 +742,42 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.broadcast('player-respawn', playerID);
   }
 
+  /**
+   * 
+   * @param player The player to check
+   * @returns player spawnpoint, depends on this.lastKiller, and whether both players are dead or not
+   */
+  getNextPlayerSpawnPoint(player: Player): {room: string, x: number, y: number} {
+    // Sort spawn points by x position so we can go through in order later
+    const spawnPointsInOrder = MAP_DATA.spawn_points.slice().sort((a, b) => {
+      return a.x - b.x;
+    });
+
+    var playerSpawnPoint;
+
+    const enemyPlayerID = this.getOtherPlayerID(player.id);
+    const enemy = this.state.players.get(enemyPlayerID);
+    // If th other player is alive, and was the last killer, determine which room to spawn in
+    if(!enemy.isDead && this.lastKillerID == enemyPlayerID) {
+      const direction = this.playerWinRooms[enemyPlayerID] == 'room_R6' ? 1 : -2;
+      // Find the spawn point directly after current enemy player position
+      for (var i = 0; i < spawnPointsInOrder.length; i++) {
+        if(spawnPointsInOrder.at(i).x > enemy.x) {
+          // Get spawnpoint in correct direction 
+          console.log(spawnPointsInOrder.at(i + direction));
+          playerSpawnPoint = spawnPointsInOrder.at(i + direction);
+          break
+        }
+      }
+    }
+    return playerSpawnPoint;
+  }
+
   getFurthestSpawnPointInRoom(roomName: string, targetX: number) {
     const spawnPoints = MAP_DATA.spawn_points.filter((room) => room.room === roomName);
     let furthestSpawnPoint: any = null;
+
+    console.log(spawnPoints[0].x);
 
     spawnPoints.forEach((spawnPoint) => {
       if (furthestSpawnPoint === null) {
@@ -928,10 +1015,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     const didSpawnOnRightSide = !didSpawnOnLeftSide;
 
     if (didSpawnOnLeftSide) {
-      this.playerWinRooms[client.sessionId], this.state.players.get(client.sessionId).winRoom = 'room_R6';
+      this.playerWinRooms[client.sessionId] = this.state.players.get(client.sessionId).winRoom = 'room_R6';
     }
     else if (didSpawnOnRightSide) {
-      this.playerWinRooms[client.sessionId], this.state.players.get(client.sessionId).winRoom = 'room_L6';
+      this.playerWinRooms[client.sessionId] = this.state.players.get(client.sessionId).winRoom = 'room_L6';
     }
 
     // Add body for player
@@ -986,50 +1073,104 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         const enemy = this.state.players.get(enemyID);
 
         if (playerIsJumpKicking && enemyIsJumpKicking) {
-          // Handle jumpkick vs jumpkick collision
+          // @todo Handle jumpkick vs jumpkick collision
+
+          player.isInputLocked = true;
+          enemy.isInputLocked = true;
+
+          player.anim = `${player.animPrefix}-flip`;
+          enemy.anim = `${enemy.animPrefix}-flip`;
+
+          const playerDir = (player.flipX ? 1 : -1);
+          const enemyDir = (enemy.flipX ? 1 : -1);
+          
+          playerBody.setVelocity(playerDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
+          enemyBody.setVelocity(enemyDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
+
+          this.clock.setTimeout(() => {
+            player.isInputLocked = false;
+            enemy.isInputLocked = false;
+          }, KICK_BOUNCEBACK_DELAY);
         }
-        else if (playerIsJumpKicking) {
+        else if ((playerIsJumpKicking && !enemy.isKicked && !enemy.isDead)
+          || (enemyIsJumpKicking && !player.isKicked && !player.isDead)) {
+          var playerA: Player;
+          var playerB: Player;
+          var playerAID: string;
+          var playerBID: string;
+          var playerABody: Body;
+          var playerBBody: Body;
+
+          if (playerIsJumpKicking) {
+            // Enemy has been kicked once, do not allow player to kick again
+            enemy.isKicked = true;
+
+            playerA = player;
+            playerB = enemy;
+            playerAID = client.sessionId;
+            playerBID = enemyID;
+            playerABody = playerBody;
+            playerBBody = enemyBody;
+          } else {
+            // Player has been kicked once, do not allow enemy to kick again
+            player.isKicked = true;
+
+            playerA = enemy;
+            playerB = player;
+            playerAID = enemyID;
+            playerBID = client.sessionId;
+            playerABody = enemyBody;
+            playerBBody = playerBody;
+          }
+
+          /**
+           * Refactored to remove duplicate code
+           */
           // Disarm enemy
-          this.disarmPlayer(enemyID, 'up');
+          this.disarmPlayer(playerBID, 'up');
           
-          player.isInputLocked = true;
-          enemy.isInputLocked = true;
+          playerA.isInputLocked = true;
+          playerB.isInputLocked = true;
 
-          player.anim = `${player.animPrefix}-flip`;
-          enemy.anim = `${enemy.animPrefix}-flip`;
+          playerA.anim = `${playerA.animPrefix}-flip`;
+          playerB.anim = `${playerB.animPrefix}-flip`;
 
-          const playerDir = (player.flipX ? 1 : -1);
-          const enemyDir = (enemy.flipX ? 1 : -1);
+          const playerADir = (playerA.flipX ? 1 : -1);
+          const playerBDir = (playerB.flipX ? 1 : -1);
           
-          playerBody.setVelocity(playerDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
-          enemyBody.setVelocity(enemyDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
+          playerABody.setVelocity(playerADir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
+          playerBBody.setVelocity(playerBDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
 
           this.clock.setTimeout(() => {
-            player.isInputLocked = false;
-            enemy.isInputLocked = false;
+            // Reset input lock
+            playerA.isInputLocked = false;
+            playerB.isInputLocked = false;
+            // Reset kicked status
+            player.isKicked = false;
+            enemy.isKicked = false
           }, KICK_BOUNCEBACK_DELAY);
         }
-        else if (enemyIsJumpKicking) {
-          // Disarm player
-          this.disarmPlayer(client.sessionId, 'up');
+        // else if (enemyIsJumpKicking) {
+        //   // Disarm player
+        //   this.disarmPlayer(client.sessionId, 'up');
 
-          player.isInputLocked = true;
-          enemy.isInputLocked = true;
+        //   player.isInputLocked = true;
+        //   enemy.isInputLocked = true;
 
-          player.anim = `${player.animPrefix}-flip`;
-          enemy.anim = `${enemy.animPrefix}-flip`;
+        //   player.anim = `${player.animPrefix}-flip`;
+        //   enemy.anim = `${enemy.animPrefix}-flip`;
 
-          const playerDir = (player.flipX ? 1 : -1);
-          const enemyDir = (enemy.flipX ? 1 : -1);
+        //   const playerDir = (player.flipX ? 1 : -1);
+        //   const enemyDir = (enemy.flipX ? 1 : -1);
           
-          playerBody.setVelocity(playerDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
-          enemyBody.setVelocity(enemyDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
+        //   playerBody.setVelocity(playerDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
+        //   enemyBody.setVelocity(enemyDir * KICK_DOWNWARDS_VELOCITY, -PLAYER_JUMP_FORCE);
 
-          this.clock.setTimeout(() => {
-            player.isInputLocked = false;
-            enemy.isInputLocked = false;
-          }, KICK_BOUNCEBACK_DELAY);
-        }
+        //   this.clock.setTimeout(() => {
+        //     player.isInputLocked = false;
+        //     enemy.isInputLocked = false;
+        //   }, KICK_BOUNCEBACK_DELAY);
+        // }
       });
     }
   }
@@ -1039,7 +1180,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     const otherPlayerID = this.getOtherPlayerID(client.sessionId);
 
-    if (otherPlayerID !== '') {
+    if (otherPlayerID !== '' && !this.gameOver) {
       console.log('Client id', otherPlayerID, 'wins by default.');
       this.declareWinner(otherPlayerID, true);
     }
@@ -1050,6 +1191,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   }
 
   declareWinner(playerID: string, winnerByDefault: boolean = false) {
+    this.gameOver = true;
     const winningPlayer = this.state.players.get(playerID);
 
     this.broadcast('game-over', {
