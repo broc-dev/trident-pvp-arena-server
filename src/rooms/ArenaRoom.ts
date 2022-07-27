@@ -11,6 +11,16 @@ const DEBUG_ENABLED = true; // set to false in production build
 
 const MAP_DATA = SingularityMap;
 
+// @todo Server Logging Icons
+const ICONS = {
+  firstPlayer: '🟦',
+  secondPlayer: '🟥',
+  sword: '⚔️',
+  death: '💀',
+  left: '⬅️',
+  right: '➡️',
+}
+
 const PLAYER_BODY = {
   width: 20,
   height: 46,
@@ -85,6 +95,49 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   };
   firstPlayerID: string = '';
   secondPlayerID: string = '';
+
+  /**
+   * 
+   * @param playerID PlayerID of player to find room direction for
+   * @returns room direction 
+   *  -1 left of given player
+   *  1 right of given player
+   */
+  getWinRoomDirection(playerID: string): number {
+    return 0
+  }
+
+  /**
+   * Logging utility to quickly investigate player interactions
+   * 
+   * @param playerID 
+   * @returns Neatly formatted & colored string for playerID
+   */
+  getPlayerTag(playerID: string): string | null {
+    var tag = ''
+    if(this.playerData[playerID]) {
+      tag = "[" + this.playerData[playerID].icon + " " + this.state.players.get(playerID).playerName + "]"
+    }
+    return tag
+  }
+  
+  LOGTYPES = {
+    kill: '[INFO] [KILL]',
+    changeRoom: '[INFO] [CHANGE-ROOM]',
+    default: '[INFO]'
+  }
+
+  /**
+   * Logging utility to give more information to the server log reader about happenings ingame
+   * @todo Expand
+   * @param type 
+   * @param value 
+   */
+  serverLog(type: string, value: string | string[]) {
+    var logPrefix = type;
+    var timeStamp = ''; // @todo Get current timestamp
+    console.log(timeStamp, " ", logPrefix, " ", value);
+  }
 
   createPhysicsBody(id: string, x: number, y: number, width: number, height: number): Body {
     this.physicsBodies[id] = this.physics.add.body(x, y, width, height);
@@ -600,20 +653,17 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       if (doRespawnEnemy) {
         // Respawn the dead player based on their enemy's win room and if the lastKiller is their enemy as well
         const spawnPoint = this.getNextPlayerSpawnPoint(enemy);
-        debugger
         this.respawn(enemyID, spawnPoint.x, spawnPoint.y);
       }
-
-      
       // Various checks to make when player changes rooms
       if (playerHasChangedRooms) {
         // Check if any players need to be respawned on player room change. Both players must be alive, otherwise handled above
         // Strip characters from player room name, then compare (e.g. room_L6 > room_L5)
-        // @todo remove logging
-        console.log(`Player ${player.playerName} in room: ${currentRoomName.replace(/\D/g,'')}`)
-        console.log(`Enemy ${enemy.playerName} in room: ${this.playerRooms[enemyID].replace(/\D/g,'')}`)
+        // @todo remove logging 
+        console.warn(`Player ${this.getPlayerTag(player.id)} in room: ${currentRoomName.replace(/\D/g,'')}`)
+        enemy !== null && console.log(`Enemy ${this.getPlayerTag(enemyID)} in room: ${this.playerRooms[enemyID].replace(/\D/g,'')}`)
 
-        if (currentRoomName.replace(/\D/g,'') > this.playerRooms[enemyID].replace(/\D/g,'')
+        if (enemy && currentRoomName.replace(/\D/g,'') > this.playerRooms[enemyID].replace(/\D/g,'')
           && !['room_L6', 'room_R6'].includes(currentRoomName)
           && !player.isDead && !enemy.isDead) {
           const spawnPoint = this.getNextPlayerSpawnPoint(enemy);
@@ -750,6 +800,14 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   respawn(playerID: string, x: number, y: number) {
     const player = this.state.players.get(playerID);
 
+    // Check for attached swords. If there is one, destroy it
+    if(this.getAttachedSword(playerID) !== null) {
+      this.deleteSword(this.getAttachedSword(playerID).id);
+    }
+
+    // Set velocity x & y to 0. This will prevent the player from moving when first respawning
+    this.physicsBodies[playerID].velocity.x = this.physicsBodies[playerID].velocity.y = 0;
+    // Set player's position to the spawn point
     this.physicsBodies[playerID].x = x;
     this.physicsBodies[playerID].y = y;
     this.physicsBodies[playerID].setAllowGravity(true);
@@ -763,6 +821,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.givePlayerSword(playerID);
     const sword = this.getAttachedSword(playerID);
     this.initSwordOverlaps(sword.id);
+    console.log(`${this.getPlayerTag(playerID)} respawned with sword ${sword.id}`);
+
+    // console.log(this.physicsBodies[playerID].)
 
     this.broadcast('player-respawn', playerID);
   }
@@ -854,9 +915,25 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     }
   }
 
+  /**
+   * Method for shorting the default UUID provided by uuidv4 to a shorter version
+   *  and checking to make sure there are new duplicates
+   */
+  getNewUUID(): string {
+    // This takes the first portion of the uuid returned by uuidv4
+    const newUUID = uuidv4().split('-')[0];
+    for(var key in Object.keys(this.physicsBodies)) {
+      // If newUUID already exists in the keys of this.physicsBodies, try again
+      if(key.includes(newUUID)) {
+        return this.getNewUUID();
+      }
+    }
+    return newUUID;
+  }
+
   givePlayerSword(playerID: string) {
     // Add state object for sword
-    const swordID = `sword_${uuidv4()}`;
+    const swordID = `sword_${this.getNewUUID()}`;
     this.state.objects.set(swordID, new AbstractObject(
       swordID,
       0,
@@ -972,12 +1049,21 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   // Immobilized for 1.5 seconds
   playerFallDown(playerID: string) {
     // @todo change player animation to fall
-
+    // jiygyghuhyfjhh
     // Set player immobilized for 1.5 seconds
     this.playerData[playerID].isInputLocked = true;
     this.clock.setTimeout(() => {
       this.playerData[playerID].isInputLocked = false;
     }, 1500)
+  }
+
+  // Should delete sword
+  deleteSword(swordID: string) {
+    this.state.objects.get(swordID).attachedTo = '';
+    this.state.objects.delete(swordID); // Delete sword from objects
+    this.state.hitboxDebug.delete(swordID); // Delete debug hitbox
+    this.physicsBodies[swordID].destroy(); // Delete sword physics objects
+    
   }
 
   disarmPlayer(playerID: string, direction: string) {
@@ -1049,6 +1135,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       spawnY = spawnPoint.y;
 
       this.firstPlayerID = client.sessionId;
+
+      // Set logging icon for player 1 (blue)
+      this.playerData[client.sessionId].icon = ICONS.firstPlayer;
     }
     else {
       const enemyBody = this.physicsBodies[enemyID];
@@ -1060,6 +1149,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       spawnY = spawnPoint.y;
 
       this.secondPlayerID = client.sessionId;
+
+      // Set logging icon for player 2 (red)
+      this.playerData[client.sessionId].icon = ICONS.secondPlayer;
     }
 
     // Determine which room player needs to reach to win

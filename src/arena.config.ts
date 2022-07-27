@@ -14,6 +14,7 @@ export default Arena({
          * Define your room handlers:
          */
         gameServer.define('arena_room', ArenaRoom);
+        // gameServer.simulateLatency(200); // Uncomment to debug latency
         // gameServer.define('chat_room', ChatRoom);
 
     },
