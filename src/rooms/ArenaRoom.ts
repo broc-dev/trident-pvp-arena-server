@@ -172,26 +172,23 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // If player is dead, don't kill again or if game is over
     if(this.state.players.get(playerID).isDead || this.gameOver) return;
 
-    // Kill player
-    player.isDead = true;
-
-    console.log(`${killerID} [${killer}] killed ${playerID} [${player.playerName}]`);
-
-    this.killCounts[killerID]++;
-
-    this.broadcast('update-killcount', {
-      playerID: killerID,
-      killCount: this.killCounts[killerID]
-    });
-
     if (typeof player !== 'undefined' && !player.isDead) {
+      console.log(`${killerID} [${killer}] killed ${playerID} [${player.playerName}]`);
+      this.killCounts[killerID]++;
+
       // Prevent movement after death
       this.physicsBodies[playerID].setVelocityX(0);
   
       // Lock player to "dead state" (will also trigger animation)
       // Verifies that player exists before trying to kill him
       player.isDead = true;
+
+      this.broadcast('update-killcount', {
+        playerID: killerID,
+        killCount: this.killCounts[killerID]
+      });
     }
+    // Prevent death if player doesn't exist
     else if (typeof player === 'undefined') {
       console.log(`Player ${playerID} no longer exists, cannot kill`);
     }
@@ -635,19 +632,17 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
       // If both players are dead, respawn both at the same time in 2 seconds.
       if((player !== null && enemy !== null) && player.isDead && enemy.isDead) {
-        this.clock.setTimeout(() => {
-          const spawnLeft  = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0').at(0);
-          const spawnRight = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0').at(1);
-          if(this.playerWinRooms[player.id] == 'room_R6') {
-            // If the player's win room is room_R6, they spawn on the left side
-            this.respawn(player.id, spawnLeft.x, spawnLeft.y);
-            this.respawn(enemyID, spawnRight.x, spawnRight.y);
-          } else if(this.playerWinRooms[player.id] == 'room_R6') {
-            // If the player's win room is room_R6, they spawn on the right side
-            this.respawn(player.id, spawnRight.x, spawnRight.y);
-            this.respawn(enemyID, spawnLeft.x, spawnLeft.y);
-          }
-        }, 2000);
+        const spawnLeft  = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0').at(0);
+        const spawnRight = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0').at(1);
+        if(this.playerWinRooms[player.id] == 'room_R6') {
+          // If the player's win room is room_R6, they spawn on the left side
+          this.respawn(player.id, spawnLeft.x, spawnLeft.y);
+          this.respawn(enemyID, spawnRight.x, spawnRight.y);
+        } else if(this.playerWinRooms[player.id] == 'room_R6') {
+          // If the player's win room is room_R6, they spawn on the right side
+          this.respawn(player.id, spawnRight.x, spawnRight.y);
+          this.respawn(enemyID, spawnLeft.x, spawnLeft.y);
+        }
       }
 
       if (doRespawnEnemy) {
