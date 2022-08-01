@@ -5,6 +5,7 @@ import { monitor } from "@colyseus/monitor";
  * Import your Room files
  */
 import { ArenaRoom } from "./rooms/ArenaRoom";
+import { LobbyRoom } from "./rooms/LobbyRoom";
 
 export default Arena({
     getId: () => "Trident PVP Server",
@@ -16,6 +17,8 @@ export default Arena({
         gameServer.define('arena_room', ArenaRoom);
         // gameServer.simulateLatency(200); // Uncomment to debug latency
         // gameServer.define('chat_room', ChatRoom);
+
+        gameServer.define('lobby_room', LobbyRoom);
 
     },
 

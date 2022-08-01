@@ -147,12 +147,16 @@ export class Player extends Schema {
   @type('boolean')
   isKicked: boolean = false;
 
-  constructor(playerName: string, id: string, width: number, height: number) {
+  @type('string')
+  color: string = '';
+
+  constructor(playerName: string, id: string, width: number, height: number, color: string) {
     super();
     this.playerName = playerName;
     this.id = id;
     this.width = width;
     this.height = height;
+    this.color = color;
   }
 }
 

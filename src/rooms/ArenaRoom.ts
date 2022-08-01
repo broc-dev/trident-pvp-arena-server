@@ -1113,7 +1113,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       options.playerName,
       client.sessionId,
       PLAYER_BODY.width,
-      PLAYER_BODY.height
+      PLAYER_BODY.height,
+      options.playerColor
     ));
 
     const spawnPoints = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0');
