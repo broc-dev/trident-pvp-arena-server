@@ -76,6 +76,7 @@ function getRandomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+
 export class ArenaRoom extends Room<ArenaRoomState> {
 
   gameOver: boolean = false;
@@ -119,6 +120,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       tag = "[" + this.playerData[playerID].icon + " " + this.state.players.get(playerID).playerName + "]"
     }
     return tag
+  }
+
+  /**
+   * Sanitizes an input string to be used as a player name
+   * @param input Player name to sanitize
+   * @returns Sanitized player name
+   */
+  sanitize(input: string): string {
+    return input.replace(/[^a-zA-Z0-9_$]/g, '');
   }
   
   LOGTYPES = {
@@ -561,7 +571,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     this.setSimulationInterval((deltaTime) => this.update(deltaTime));
 
-    console.log("room", this.roomId, "created...");
+    console.log("Room", this.roomId, "created...");
   }
 
   update(deltaTime: any) {
@@ -1110,7 +1120,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     // Add state object for player
     this.state.players.set(client.sessionId, new Player(
-      options.playerName,
+      this.sanitize(options.playerName), // Sanitize player name incase it missed it on the client
       client.sessionId,
       PLAYER_BODY.width,
       PLAYER_BODY.height,

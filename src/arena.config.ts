@@ -6,6 +6,7 @@ import { monitor } from "@colyseus/monitor";
  */
 import { ArenaRoom } from "./rooms/ArenaRoom";
 import { LobbyRoom } from "./rooms/LobbyRoom";
+import { GlobalChatRoom } from "./rooms/GlobalChatRoom";
 
 export default Arena({
     getId: () => "Trident PVP Server",
@@ -15,6 +16,7 @@ export default Arena({
          * Define your room handlers:
          */
         gameServer.define('arena_room', ArenaRoom);
+        gameServer.define('global_chat', GlobalChatRoom);
         // gameServer.simulateLatency(200); // Uncomment to debug latency
         // gameServer.define('chat_room', ChatRoom);
 
