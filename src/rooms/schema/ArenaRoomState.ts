@@ -168,6 +168,9 @@ export class ArenaRoomState extends Schema {
   @type({ map: AbstractObject })
   objects = new MapSchema<AbstractObject>();
 
+  @type('string')
+  chatRoomID: string = '';
+
   @type({ map: HitboxDebug })
   hitboxDebug = new MapSchema<HitboxDebug>();
 

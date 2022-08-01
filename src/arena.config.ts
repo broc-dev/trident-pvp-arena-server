@@ -6,6 +6,7 @@ import { monitor } from "@colyseus/monitor";
  */
 import { ArenaRoom } from "./rooms/ArenaRoom";
 import { LobbyRoom } from "./rooms/LobbyRoom";
+import { CurrentGameChatRoom } from "./rooms/CurrentGameChatRoom";
 import { GlobalChatRoom } from "./rooms/GlobalChatRoom";
 
 export default Arena({
@@ -17,6 +18,7 @@ export default Arena({
          */
         gameServer.define('arena_room', ArenaRoom);
         gameServer.define('global_chat', GlobalChatRoom);
+        gameServer.define('current_room', CurrentGameChatRoom);
         // gameServer.simulateLatency(200); // Uncomment to debug latency
         // gameServer.define('chat_room', ChatRoom);
 

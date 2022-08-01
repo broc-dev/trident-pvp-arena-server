@@ -254,9 +254,19 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   onCreate (options: any) {
     this.setState(new ArenaRoomState());
 
+    // @todo Create new Current Game chat room. Add players to it as they join
+
+
     // Decrease latency through more frequent network updates
     this.setPatchRate(16.6);
 
+    // Listen for first player to create chat room
+    this.onMessage('new-chat-room', (client: Client, id: string) => {
+      console.log("New chat room created: ", id);
+      this.state.chatRoomID = id;
+    });
+
+    // Listen for changes in stance from player
     this.onMessage('change-stance', (client: Client, data: Record<string, string>) => {
       const {direction} = data;
       const {sessionId: playerID} = client;
@@ -304,6 +314,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       }
     });
 
+    // Read direct keyboard input from player, move player accordingly
     this.onMessage('keyboard-input', (client: Client, input: Record<string, boolean>) => {
       const {up, left, right, down, attack: doAttack, jump} = input;
       const playerBody = this.physicsBodies[client.sessionId];
@@ -640,6 +651,14 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         !['room_L6', 'room_R6'].includes(currentRoomName)
       );
 
+      if(player.isDead && enemy == null) {
+        const spawnLeft  = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0').at(0);
+        const spawnRight = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0').at(1);
+        const spawn = (this.playerWinRooms[player.id] === 'room_R6') ? spawnRight : spawnLeft;
+
+        this.respawn(player.id, spawn.x, spawn.y);
+      }
+
       // If both players are dead, respawn both at the same time in 2 seconds.
       if((player !== null && enemy !== null) && player.isDead && enemy.isDead) {
         const spawnLeft  = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0').at(0);
@@ -670,7 +689,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
         if (enemy && currentRoomName.replace(/\D/g,'') > this.playerRooms[enemyID].replace(/\D/g,'')
           && !['room_L6', 'room_R6'].includes(currentRoomName)
-          && !player.isDead && !enemy.isDead) {
+          && !player.isDead && !enemy.isDead
+          // @todo Testing this condition out.
+          // Should prevent new bug
+          // NOTE: Not working, try different solution
+          && this.lastKillerID == player.id) {
           const spawnPoint = this.getNextPlayerSpawnPoint(enemy);
           console.log(`Spawning ${player.playerName} in "${spawnPoint.room}" at X:${spawnPoint.x}, Y:${spawnPoint.y}`)
           this.respawn(enemyID, spawnPoint.x, spawnPoint.y);
@@ -1054,7 +1077,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   // Immobilized for 1.5 seconds
   playerFallDown(playerID: string) {
     // @todo change player animation to fall
-    // jiygyghuhyfjhh
+    // 
     // Set player immobilized for 1.5 seconds
     this.playerData[playerID].isInputLocked = true;
     this.clock.setTimeout(() => {
@@ -1142,6 +1165,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
       this.firstPlayerID = client.sessionId;
 
+      // The first player to join a room (the creator) should create the associated chat room.
+      client.send('create-chat-room');
+
       // Set logging icon for player 1 (blue)
       this.playerData[client.sessionId].icon = ICONS.firstPlayer;
     }
@@ -1155,6 +1181,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       spawnY = spawnPoint.y;
 
       this.secondPlayerID = client.sessionId;
+
+      // @todo When second player spawns in, respawn first player back in their spot (match has "begun");
 
       // Set logging icon for player 2 (red)
       this.playerData[client.sessionId].icon = ICONS.secondPlayer;
@@ -1223,7 +1251,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         const enemy = this.state.players.get(enemyID);
 
         if (playerIsJumpKicking && enemyIsJumpKicking) {
-          // @todo Handle jumpkick vs jumpkick collision
           this.disarmPlayer(player.id, 'up');
           this.disarmPlayer(enemy.id, 'up');
 

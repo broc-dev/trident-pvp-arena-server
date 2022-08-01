@@ -8,7 +8,7 @@ import { ChatRoomState, Message } from "./schema/ChatRoomState";
  * When the Global Chat Room is initialized, it should pull previous chat history from the database.
  * Players should get a copy of chat history when they join the room.
  */
-export class GlobalChatRoom extends Room<ChatRoomState> {
+export class CurrentGameChatRoom extends Room<ChatRoomState> {
 
     // One playerName may have multiple IDs attached to it.
     playerIDtoName: Map<string, string> = new Map();
@@ -16,13 +16,6 @@ export class GlobalChatRoom extends Room<ChatRoomState> {
     
     onCreate(options: any) {
         this.setState(new ChatRoomState());
-
-        // Allow Global Chat room to persist with no players in it
-        this.autoDispose = false;
-
-        // @todo Preload past chat history with API call to database
-
-        // @todo Generate playerIDtoName map from Messages in chat history
 
         // Set participant [0] to be the server
         this.state.activeParticipants[0] = this.adminMessager;
@@ -33,14 +26,14 @@ export class GlobalChatRoom extends Room<ChatRoomState> {
             this.addMessage(pName, client.sessionId, message);
         });
 
-        console.log("Global Chat Room", this.roomId, "created...");
+        console.log("Current Game Chat Room", this.roomId, "created...");
     }
 
     onJoin(client: Client, options: any) {
         // If the player doesn't exist in activeParticipants, add them.
         // if(this.state.activeParticipants.find(p => p === this.playerIDtoName.get(client.sessionId)) == undefined) {
         if(this.playerIDtoName.has(client.sessionId) == false) {
-            console.log("Player", client.sessionId, "joined the global chat as " + options.playerName);
+            console.log("Player", client.sessionId, "joined the room as " + options.playerName);
             // Associate connect client ID with playerName
             this.playerIDtoName.set(client.sessionId, options.playerName);
 
@@ -55,7 +48,7 @@ export class GlobalChatRoom extends Room<ChatRoomState> {
         // Find the player leaving in the activeParticipants, and remove
         this.state.activeParticipants.deleteAt(this.state.activeParticipants.indexOf(this.playerIDtoName.get(client.sessionId)));
 
-        this.adminMessage(`${this.playerIDtoName.get(client.sessionId)} has left the chat.`);
+        this.adminMessage(`${this.playerIDtoName.get(client.sessionId)} has left the room.`);
     }
 
     /**
@@ -64,6 +57,11 @@ export class GlobalChatRoom extends Room<ChatRoomState> {
      */
     adminMessage(message: string) {
         this.addMessage(this.adminMessager, "0", message);
+    }
+
+    shutdownRoom() {
+        // this.writeStateToDB();
+        this.disconnect();
     }
 
     /**
