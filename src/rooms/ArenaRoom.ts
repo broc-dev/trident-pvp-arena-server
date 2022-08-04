@@ -1,6 +1,7 @@
-import { Room, Client, ServerError } from "colyseus";
+import { Room, Client, ServerError, matchMaker } from "colyseus";
 import { AbstractObject, ArenaRoomState, HitboxDebug, Player } from "./schema/ArenaRoomState";
 import { ArcadePhysics } from 'arcade-physics';
+import StateMachine from "javascript-state-machine";
 import { Body } from 'arcade-physics/lib/physics/arcade/Body';
 import { StaticBody } from "arcade-physics/lib/physics/arcade/StaticBody";
 import SingularityMap from "../maps/SingularityMap";
@@ -56,7 +57,7 @@ const LUNGE_VELOCITY = 44;
 const SWORD_BOUNCEBACK = 120;
 const SWORD_BOUNCEBACK_DELAY = 150;
 
-const KICK_DOWNWARDS_VELOCITY = 400;
+const KICK_DOWNWARDS_VELOCITY = 600;
 const KICK_BOUNCEBACK_DELAY = 350;
 
 const MAX_SPEED = 360;
@@ -92,7 +93,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   lastKillerID: string = '';
   playerData: Record<string, Record<string, any>> = {};
   initPlayerData: Record<string, any> = {
-    isJumpKicking: false
+    isJumpKicking: false,
+    direction: '',
   };
   firstPlayerID: string = '';
   secondPlayerID: string = '';
@@ -214,10 +216,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     const kickVelX = (
       (player.flipX ? -1 : 1)
       // * MAX_SPEED * 2
-      * (Math.abs(0.5 * playerBody.velocity.x) + 260)
+      * (Math.abs(0.5 * playerBody.velocity.x) + 350)
     );
-    const kickVelY = (-1 * Math.abs(playerBody.velocity.y)) + 150;
-    // const kickVelY = KICK_DOWNWARDS_VELOCITY;
+
+    // 
+    const kickVelY = (playerBody.velocity.y) + 250;
 
     playerBody.setVelocity(kickVelX, kickVelY);
   }
@@ -255,20 +258,29 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.setState(new ArenaRoomState());
 
     // @todo Create new Current Game chat room. Add players to it as they join
-
+    this.createChatRoom();
 
     // Decrease latency through more frequent network updates
     this.setPatchRate(16.6);
 
-    // Listen for first player to create chat room
-    this.onMessage('new-chat-room', (client: Client, id: string) => {
-      console.log("New chat room created: ", id);
-      this.state.chatRoomID = id;
-    });
+    // Create state machine for player states
+    
 
-    // Listen for changes in stance from player
+    // Listen for first player to create chat room
+    // this.onMessage('new-chat-room', (client: Client, id: string) => {
+    //   console.log("New chat room created: ", id);
+    //   this.state.chatRoomID = id;
+    // });
+
+    /**
+     * Listen for players intention to change sword position & 
+     */
     this.onMessage('change-stance', (client: Client, data: Record<string, string>) => {
       const {direction} = data;
+
+      // Set player's intended direction change to the new direction
+      this.playerData[client.sessionId].direction = direction;
+
       const {sessionId: playerID} = client;
       const player = this.state.players.get(playerID);
       const hasSword = (player.animPrefix === 'sword');
@@ -329,7 +341,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         this.playerData[client.sessionId].isJumpKicking = false;
       }
       
-      const {isJumpKicking} = this.playerData[client.sessionId];
+      const { isJumpKicking, isFallenDown } = this.playerData[client.sessionId];
       
       if (!player.isDead && !player.isInputLocked) {
         // Attack (or throw attack)
@@ -467,8 +479,12 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   
         // Animation logic
         if (isJumpKicking) {
-          player.animMode = 'loop';
+          player.animMode = 'play-hold';
           player.anim = `${player.animPrefix}-jumpkick`;
+        }
+        else if(isFallenDown) {
+          player.animMode = 'play-hold';
+          player.anim = `layDown`;
         }
         else if (hasSword && isGrounded && doThrowAttack) {
           player.animMode = 'play-hold';
@@ -1077,12 +1093,18 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   // Immobilized for 1.5 seconds
   playerFallDown(playerID: string) {
     // @todo change player animation to fall
-    // 
-    // Set player immobilized for 1.5 seconds
+    // Set player immobilized for 1.5-2.5 seconds. Animation will 
+    // const duration = 1500 + (Math.random() * 1000);
+    const duration = 2000;
+
     this.playerData[playerID].isInputLocked = true;
+    this.playerData[playerID].isFallenDown = true;
+
     this.clock.setTimeout(() => {
       this.playerData[playerID].isInputLocked = false;
-    }, 1500)
+      this.playerData[playerID].isFallenDown = false;
+      this.playerData[playerID].isKicked = false;
+    }, duration)
   }
 
   // Should delete sword
@@ -1130,9 +1152,123 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   onJoin (client: Client, options: any) {
     console.log(client.sessionId, "joined as", options.playerName);
 
+    var stateMachine = StateMachine.create({
+      initial: "sword-idle-mid",
+      events: [
+          { name: "sword-idle-low", from: ["sword-crouch", "sword-idle-mid", "sword-run"], to: "sword-idle-low" },
+          { name: "sword-idle-mid", from: ["sword-idle-low", "sword-idle-high", "sword-run"], to: "sword-idle-mid" },
+          { name: "sword-idle-high", from: ["sword-idle-mid", "sword-throw-ready", "sword-run"], to: "sword-idle-high" },
+          { name: "sword-attack-low", from: ["sword-idle-low"], to: "sword-attack-low" },
+          { name: "sword-attack-mid", from: ["sword-idle-mid"], to: "sword-attack-mid" },
+          { name: "sword-attack-high", from: ["sword-idle-high"], to: "sword-attack-high" },
+          { name: "sword-forstep-low", from: ["sword-idle-low"], to: "sword-forstep-low" },
+          { name: "sword-forstep-mid", from: ["sword-idle-mid"], to: "sword-forstep-mid" },
+          { name: "sword-forstep-high", from: ["sword-idle-high"], to: "sword-forstep-high" },
+          { name: "sword-backstep-low", from: ["sword-idle-low"], to: "sword-backstep-low" },
+          { name: "sword-backstep-mid", from: ["sword-idle-mid"], to: "sword-backstep-mid" },
+          { name: "sword-crouch", from: ["sword-idle-low", "sword-crouch-jump", "sword-crouch-walk", "sword-crouch-attack"], to: "sword-crouch" },
+          { name: "sword-crouch-walk", from: ["sword-crouch"], to: "sword-crouch-walk" },
+          { name: "sword-crouch-jump", from: ["sword-crouch", "sword-crouch-walk"], to: "sword-crouch-jump" },
+          { name: "sword-jump", from: ["sword-idle-low", "sword-idle-mid", "sword-idle-high", "sword-run", "sword-crouch-jump"], to: "sword-jump" },
+          { name: "sword-jumpkick", from: "sword-jump", to: "sword-jumpkick" },
+          { name: "sword-curbstomp", from: ["sword-idle-low", "sword-idle-mid", "sword-idle-high", 
+            "sword-backstep-low", "sword-backstep-mid", "sword-backstep-high",
+            "sword-forstep-low", "sword-forstep-mid", "sword-forstep-high"], to: "sword-curbstomp" },
+          { name: "sword-cartwheel", from: ["sword-run"], to: "sword-cartwheel" },
+
+          { name: "sword-run", from: ["sword-idle-low", "sword-idle-mid", "sword-idle-high", "sword-forstep-low", "sword-forstep-mid", "sword-forstep-high", "sword-backstep-low", "sword-backstep-mid", "sword-backstep-high"], to: "sword-run" },
+          { name: "sword-throw-ready", from: ["sword-idle-high"], to: "sword-throw-ready" },
+          { name: "throw", from: ["sword-throw-ready"], to: "throw" },
+
+          { name: "nosword-idle", from: ["sword-idle-low", "sword-idle-mid", "sword-idle-high", "crouch"] , to: "nosword-idle" },
+          { name: "nosword-attack", from: ["nosword-idle", "nosword-run"], to: "nosword-attack" },
+          { name: "nosword-run", from: ["nosword-idle"], to: "nosword-run" },
+          { name: "nosword-forstep", from: ["nosword-idle"], to: "nosword-forstep" },
+          { name: "nosword-backstep", from: ["nosword-idle"], to: "nosword-backstep" },
+          { name: "nosword-jumpkick", from: ["jump"], to: "nosword-jumpkick" },
+          { name: "nosword-curbStomp", from: ["nosword-idle", "nosword-attack", "nosword-run", "nosword-forstep", "nosword-backstep"], to: "nosword-curbStomp" },
+          { name: "nosword-rolling", from: ["nosword-idle", "nosword-run", "nosword-forstep", "nosword-backstep"], to: "rolling" },
+          { name: "nosword-cartwheel", from: ["nosword-run"], to: "nosword-cartwheel" },
+          { name: "crouch", from: ["nosword-idle", "nosword-run", "nosword-forstep", "nosword-backstep", "crouch-walk", "nosword-crouch-attack"], to: "crouch" },
+          { name: "crouch-walk", from: ["crouch", "nosword-crouch-jump"], to: "crouch-walk" },
+          { name: "nosword-crouch-jump", from: ["crouch", "crouch-walk"], to: "nosword-crouch-jump" },
+          { name: "nosword-crouch-attack", from: ["crouch"], to: "nosword-crouch-attack" },
+          { name: "nosword-rolling", from: ["nosword-run"], to: "nosword-rolling" },
+          { name: "sword-rolling", from: ["sword-run"], to: "sword-rolling" },
+          { name: "lay-down", from: ["*"], to: "lay-down" },
+
+          { name: "death-stand", from: ["*"], to: "death-stand" },
+          { name: "death-lay", from: [""], to: "death-lay" },
+      ],
+      callbacks: {
+          onEnterState: (event, from, to) => {
+            
+            // const animString = event.replace(/^[A-Z]+$/g, '-$1').toLowerCase();
+
+            console.log(to)
+          },
+          onSwordIdleLow: (event, from, to) => {
+
+          },
+          
+      },
+    });
+
+    // A series of checks to run once each update tick, then provide to State Predicates for the State Machine
+    // Example:
+    // ------------------------------------------------------------
+    // const { hasSword, isGrounded, isCrouching, currentPlayerState, direction } = playerStateChecks(player)
+    //
+    // for (const t of this.playerData[player].stateMachine.transitions()) {
+    //     if (t in this.playerData[player].stateMachinePredicates && this.playerData[player].stateMachinePredicates[t]()) {
+    //         this.playerData[player].stateMachine[t]();
+    //         break;
+    //     }
+    // }
+    // ------------------------------------------------------------
+    var playerStateChecks = (player: Player) => {
+      return {
+        hasSword: (player.animPrefix === 'sword'),
+        isAlive: !player.isDead,
+        isCrouching: (player.anim.includes('crouch')), // Check for currently crouching, sword or nosword
+        currentPlayerState: this.playerData[player.id].stateMachine.state, // Check for current state in statemachine
+        isKicked: this.playerData[player.id].isKicked,
+        isFallen: this.playerData[player.id].isFallen,
+        isRolling: this.playerData[player.id].isRolling,
+        isInputLocked: this.playerData[player.id].isInputLocked,
+        isGrounded: this.playerData[player.id].isGrounded,
+      }
+    }
+
+    var stateMachinePredicates = {
+      // Example:
+      // idle: (player: Player) => { ...condition... },
+      swordIdleLow: (player: Player, hasSword: boolean, isAlive: boolean, isCrouching: boolean, state: string) => {
+        // Check if player is holding sword,
+        // and if player has signaled to change sword positions
+        const direction = this.playerData[player.id].direction;
+
+        // Invalidating conditions, check for these first and then return false to skip further evaluation
+        if(!hasSword || player.isDead || player.velX != 0 || direction === '') return false;
+
+        // If the player is in the mid position, and signals down, reset the 'direction' change and return true for sword change;
+        if (direction === 'low' && player.level === 'mid') {
+          this.playerData[player.id].direction = '';
+          this.state.players.get(player.id).level = 'low';
+          return true;
+        // If the player is crouching and signals up, reset the 'direction' change and return true for sword change;
+        } else if(direction !== 'down' && isCrouching && player.level === 'low') {
+          
+        }
+      },
+
+    };
+
     // Initialize playerData
     this.playerData[client.sessionId] = {
-      ...this.initPlayerData
+      ...this.initPlayerData,
+      stateMachine: stateMachine,
+      stateMachinePredicates: stateMachinePredicates,
     };
 
     // Init player kill count
@@ -1166,7 +1302,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       this.firstPlayerID = client.sessionId;
 
       // The first player to join a room (the creator) should create the associated chat room.
-      client.send('create-chat-room');
+      // client.send('create-chat-room');
+      // console.log("Telling player to create chat room");
 
       // Set logging icon for player 1 (blue)
       this.playerData[client.sessionId].icon = ICONS.firstPlayer;
@@ -1250,6 +1387,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         const player = this.state.players.get(client.sessionId);
         const enemy = this.state.players.get(enemyID);
 
+        // If both players are kicking each other
         if (playerIsJumpKicking && enemyIsJumpKicking) {
           this.disarmPlayer(player.id, 'up');
           this.disarmPlayer(enemy.id, 'up');
@@ -1304,6 +1442,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
           /**
            * Refactored to remove duplicate code
+           * 
+           * PlayerA is the player who is kicking PlayerB
+           * PlayerB is the player who is being kicked by PlayerA
            */
           // Disarm enemy
           this.disarmPlayer(playerBID, 'up');
@@ -1318,8 +1459,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           const playerADir = (playerA.flipX ? 1 : -1);
           const playerBDir = (playerB.flipX ? 1 : -1);
           
-          playerABody.setVelocity(playerADir * (0.2 * KICK_DOWNWARDS_VELOCITY), -(PLAYER_JUMP_FORCE * 0.25));
-          playerBBody.setVelocity(playerBDir * KICK_DOWNWARDS_VELOCITY, -(0.35 * PLAYER_JUMP_FORCE));
+          playerABody.setVelocity(playerADir * (0.3 * KICK_DOWNWARDS_VELOCITY), -(PLAYER_JUMP_FORCE * 0.25));
+          playerBBody.setVelocity(playerBDir * (0.5 * KICK_DOWNWARDS_VELOCITY), -(0.35 * PLAYER_JUMP_FORCE));
 
           this.clock.setTimeout(() => {
             // Reset input lock
@@ -1355,6 +1496,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     }
   }
 
+  async createChatRoom() {
+    var room = await matchMaker.createRoom('current_room', {});
+    this.state.chatRoomID = room.roomId;
+  }
+
+  async shutdownChat() {
+    await matchMaker.remoteRoomCall(this.state.chatRoomID, "shutdownRoom");
+  }
+
   onLeave (client: Client, consented: boolean) {
     console.log(`${client.sessionId} [${this.state.players.get(client.sessionId).playerName}] ${consented ? 'left!' : 'was disconnected!'}`);
 
@@ -1368,6 +1518,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
   onDispose() {
     console.log("Room", this.roomId, "disposing...");
+    try {
+      this.shutdownChat();
+    } catch (e) {}
   }
 
   declareWinner(playerID: string, winnerByDefault: boolean = false) {

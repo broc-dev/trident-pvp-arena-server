@@ -1,4 +1,5 @@
 import { Schema, MapSchema, type } from "@colyseus/schema";
+import { matchMaker } from "colyseus";
 
 export class HitboxDebug extends Schema {
   @type('string')
@@ -146,6 +147,12 @@ export class Player extends Schema {
 
   @type('boolean')
   isKicked: boolean = false;
+
+  @type('boolean')
+  isFallenDown: boolean = false;
+
+  @type('boolean')
+  isRolling: boolean = false;
 
   @type('string')
   color: string = '';

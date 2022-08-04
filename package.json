@@ -8,6 +8,7 @@
     "start": "ts-node-dev --respawn --transpile-only src/index.ts",
     "loadtest": "colyseus-loadtest loadtest/example.ts --room my_room --numClients 2",
     "build": "npm run clean && tsc && node node_modules/copyfiles/copyfiles package.json ./lib && node node_modules/copyfiles/copyfiles arena.env ./lib",
+    "deploy": "npm run build && python3 deploy.py",
     "clean": "node node_modules/rimraf/bin lib",
     "test": "mocha --require ts-node/register test/**_test.ts --exit --timeout 15000"
   },
@@ -33,11 +34,13 @@
   "dependencies": {
     "@colyseus/arena": "^0.14.22",
     "@colyseus/monitor": "^0.14.20",
+    "@types/javascript-state-machine": "^2.4.3",
     "arcade-physics": "^0.0.2",
     "colors": "^1.4.0",
     "colyseus": "^0.14.20",
     "cors": "^2.8.5",
     "express": "^4.16.4",
+    "javascript-state-machine": "2.4.0",
     "uuid": "^8.3.2"
   }
 }

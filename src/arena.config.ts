@@ -16,14 +16,18 @@ export default Arena({
         /**
          * Define your room handlers:
          */
+        // Game Room Types
         gameServer.define('arena_room', ArenaRoom);
+
+        // Chat Room Types
         gameServer.define('global_chat', GlobalChatRoom);
         gameServer.define('current_room', CurrentGameChatRoom);
-        // gameServer.simulateLatency(200); // Uncomment to debug latency
-        // gameServer.define('chat_room', ChatRoom);
+        
 
+        // Lobby Room
         gameServer.define('lobby_room', LobbyRoom);
 
+        // gameServer.simulateLatency(200); // Uncomment to debug latency
     },
 
     initializeExpress: (app) => {

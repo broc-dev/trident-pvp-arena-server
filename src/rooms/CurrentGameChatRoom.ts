@@ -17,6 +17,8 @@ export class CurrentGameChatRoom extends Room<ChatRoomState> {
     onCreate(options: any) {
         this.setState(new ChatRoomState());
 
+        this.autoDispose = false;
+
         // Set participant [0] to be the server
         this.state.activeParticipants[0] = this.adminMessager;
 
@@ -36,7 +38,6 @@ export class CurrentGameChatRoom extends Room<ChatRoomState> {
             console.log("Player", client.sessionId, "joined the room as " + options.playerName);
             // Associate connect client ID with playerName
             this.playerIDtoName.set(client.sessionId, options.playerName);
-
             // Push the client's player name to the list of participants if it doesn't exist
             this.state.activeParticipants.push(options.playerName);
             
@@ -78,6 +79,10 @@ export class CurrentGameChatRoom extends Room<ChatRoomState> {
         messageObj.message = message;
         
         this.state.messages.push(messageObj);
+    }
+
+    onDispose() {
+        console.log(`Chat room ${this.roomId} shutting down...`);
     }
 
     writeStateToDB() {

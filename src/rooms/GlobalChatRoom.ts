@@ -13,6 +13,12 @@ export class GlobalChatRoom extends Room<ChatRoomState> {
     // One playerName may have multiple IDs attached to it.
     playerIDtoName: Map<string, string> = new Map();
     adminMessager: string = "Server";
+
+    // Removes < and > from the message
+    sanitizeMessage(input: string) {
+        // Check for null inputs
+        return (input !== null) ? input.replace(/^[<>]+$/g, '') : "";
+    }
     
     onCreate(options: any) {
         this.setState(new ChatRoomState());
@@ -38,17 +44,23 @@ export class GlobalChatRoom extends Room<ChatRoomState> {
 
     onJoin(client: Client, options: any) {
         // If the player doesn't exist in activeParticipants, add them.
-        // if(this.state.activeParticipants.find(p => p === this.playerIDtoName.get(client.sessionId)) == undefined) {
-        if(this.playerIDtoName.has(client.sessionId) == false) {
-            console.log("Player", client.sessionId, "joined the global chat as " + options.playerName);
-            // Associate connect client ID with playerName
-            this.playerIDtoName.set(client.sessionId, options.playerName);
 
-            // Push the client's player name to the list of participants if it doesn't exist
-            this.state.activeParticipants.push(options.playerName);
-            
+        // Check that playerName doesn't already exist in room
+        this.playerIDtoName.forEach((value, key, map) => {
+            if(options.playerName == value)
+                return;
+        })
+
+        console.log("Player", client.sessionId, "joined the global chat as " + options.playerName);
+        // Associate connect client ID with playerName
+        this.playerIDtoName.set(client.sessionId, options.playerName);
+        // Push the client's player name to the list of participants if it doesn't exist
+        this.state.activeParticipants.push(options.playerName);
+        console.log(this.state.activeParticipants);
+        
+        this.clock.setTimeout(() => {
             this.adminMessage(`${options.playerName} has joined the chat.`);
-        } else return; // We can return because the client has already joined and been added
+        }, 750); // Wait 750ms after playerjoin to send 'join' message, some players dont get it if sent too early
     }
 
     onLeave(client: Client, consented?: boolean): void | Promise<any> {
@@ -77,7 +89,7 @@ export class GlobalChatRoom extends Room<ChatRoomState> {
         messageObj.author = fromName;
         messageObj.authorID = fromID;
         messageObj.timestamp = timestamp;
-        messageObj.message = message;
+        messageObj.message = this.sanitizeMessage(message);
         
         this.state.messages.push(messageObj);
     }

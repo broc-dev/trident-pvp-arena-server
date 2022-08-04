@@ -5,6 +5,9 @@ export class LobbyRoom extends Room<LobbyRoomState> {
   onCreate(options: any) {
     console.log('Lobby up.');
 
+    // Prevent the lobby from being disposed if there are no players in it.
+    this.autoDispose = false;
+
     this.setState(new LobbyRoomState());
 
     this.onMessage('create-fencing-match', (client, { roomID, creatorName }) => {
