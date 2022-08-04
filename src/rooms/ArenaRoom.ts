@@ -23,35 +23,35 @@ const ICONS = {
 
 const PLAYER_BODY = {
   width: 20,
-  height: 46,
+  height: 40,
   originX: 0.5,
   originY: 1
 };
 
 const OBJECT_BODIES: Record<string, any> = {
   'sword': {
-    width: 25,
+    width: 26,
     height: 6,
     originX: 0,
     originY: 0.5
   }
 };
 
-const MS_PER_FRAME = 37;
+const MS_PER_FRAME = 100;
 
 const SWORD_ATTACK_FRAME_XOFFSETS: Array<number> = [
   // 0,
-  1,
-  4,
+  -1,
+  -2,
   16,
-  16,
-  4,
-  1
+  14,
+  -2,
+  -1
 ];
 
 const FPS = 60;
 
-const LUNGE_VELOCITY = 120;
+const LUNGE_VELOCITY = 44;
 
 const SWORD_BOUNCEBACK = 120;
 const SWORD_BOUNCEBACK_DELAY = 150;
@@ -767,16 +767,16 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   
             // WARNING -- MAGIC NUMBERS INCOMING
             if (player.level === 'low') {
-              swordBody.x = playerX + (10 * flipMod) - flipOffset;
-              swordBody.y = playerY - 19;
+              swordBody.x = playerX + (19 * flipMod) - flipOffset;
+              swordBody.y = playerY - 22;
             }
             else if (player.level === 'mid') {
-              swordBody.x = playerX + (8 * flipMod) - flipOffset;
+              swordBody.x = playerX + (19 * flipMod) - flipOffset;
               swordBody.y = playerY - 27;
             }
             else if (player.level === 'high') {
-              swordBody.x = playerX + (8 * flipMod) - flipOffset;
-              swordBody.y = playerY - 40;
+              swordBody.x = playerX + (19 * flipMod) - flipOffset;
+              swordBody.y = playerY - 36;
             }
   
             // Adjust for additional x offset
