@@ -50,6 +50,18 @@ const SWORD_ATTACK_FRAME_XOFFSETS: Array<number> = [
   -1
 ];
 
+const PUNCH_ATTACK_FRAME_XOFFSETS: Array<number> = [
+  // 0,
+  0,
+  0,
+  -1,
+  8,
+  27,
+  27,
+  8,
+  -1
+];
+
 const FPS = 60;
 
 const LUNGE_VELOCITY = 44;
@@ -69,6 +81,11 @@ const PLAYER_JUMP_FORCE = 600;
 
 const THROW_VELOCITY = 700;
 const DISARM_VELOCITY = 200;
+
+const ROLL_VELOCITY = 150;
+const ROLL_NUM_FRAMES = 6;
+
+const ROLL_TURN_DELAY = 1250; // The number of MS it takes a player to turn after being rolled past
 
 // https://stackoverflow.com/questions/1527803/generating-random-whole-numbers-in-javascript-in-a-specific-range
 function getRandomInt(min: number, max: number) {
@@ -95,6 +112,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   initPlayerData: Record<string, any> = {
     isJumpKicking: false,
     direction: '',
+    isRolling: false,
+    willTurn: false
   };
   firstPlayerID: string = '';
   secondPlayerID: string = '';
@@ -227,8 +246,27 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     playerBody.setVelocity(kickVelX, kickVelY);
   }
 
+  doRoll(playerID: string) {
+    const player = this.state.players.get(playerID);
+
+    this.clock.start();
+
+    player.isInputLocked = true;
+    this.playerData[playerID].isRolling = true;
+
+    const dir = (player.flipX ? -1 : 1);
+
+    this.physicsBodies[playerID].setVelocityX(dir * ROLL_VELOCITY);
+
+    this.clock.setTimeout(() => {
+      player.isInputLocked = false;
+      this.playerData[playerID].isRolling = false;
+    }, MS_PER_FRAME * ROLL_NUM_FRAMES);
+  }
+
   doAttack(playerID: string) {
     const player = this.state.players.get(playerID);
+    const hasSword = (player.animPrefix === 'sword');
 
     // Start clock 
     this.clock.start();
@@ -240,24 +278,42 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     player.isAttacking = true;
 
     // Move in direction of attack
-    const dir = (player.flipX ? -1 : 1);
-
-    this.physicsBodies[playerID].setVelocityX(dir * LUNGE_VELOCITY);
-
-    // Adjust sword hitbox by mapped xoffset / frame
-    let frame = 0;
-    const hitboxShiftInterval = this.clock.setInterval(() => {
-      player.xSwordOffset = SWORD_ATTACK_FRAME_XOFFSETS[frame];
-      frame++;
-    }, MS_PER_FRAME);
-
-    // Clear after last frame
-    this.clock.setTimeout(() => {
-      player.xSwordOffset = 0;
-      hitboxShiftInterval.clear();
-      player.isInputLocked = false;
-      player.isAttacking = false;
-    }, MS_PER_FRAME * SWORD_ATTACK_FRAME_XOFFSETS.length);
+    if (hasSword) {
+      const dir = (player.flipX ? -1 : 1);
+  
+      this.physicsBodies[playerID].setVelocityX(dir * LUNGE_VELOCITY);
+  
+      // Adjust sword hitbox by mapped xoffset / frame
+      let frame = 0;
+      const hitboxShiftInterval = this.clock.setInterval(() => {
+        player.xSwordOffset = SWORD_ATTACK_FRAME_XOFFSETS[frame];
+        frame++;
+      }, MS_PER_FRAME);
+  
+      // Clear after last frame
+      this.clock.setTimeout(() => {
+        player.xSwordOffset = 0;
+        hitboxShiftInterval.clear();
+        player.isInputLocked = false;
+        player.isAttacking = false;
+      }, MS_PER_FRAME * SWORD_ATTACK_FRAME_XOFFSETS.length);
+    }
+    else {
+      // Adjust punch hitbox by mapped xoffset / frame
+      let frame = 0;
+      const hitboxShiftInterval = this.clock.setInterval(() => {
+        player.xPunchOffset = PUNCH_ATTACK_FRAME_XOFFSETS[frame];
+        frame++;
+      }, MS_PER_FRAME);
+  
+      // Clear after last frame
+      this.clock.setTimeout(() => {
+        player.xPunchOffset = 0;
+        hitboxShiftInterval.clear();
+        player.isInputLocked = false;
+        player.isAttacking = false;
+      }, MS_PER_FRAME * SWORD_ATTACK_FRAME_XOFFSETS.length);
+    }
   }
 
   onCreate (options: any) {
@@ -334,7 +390,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     // Read direct keyboard input from player, move player accordingly
     this.onMessage('keyboard-input', (client: Client, input: Record<string, boolean>) => {
-      const {up, left, right, down, attack: doAttack, jump} = input;
+      const {up, left, right, down, attack: doAttack, jump, roll: doRoll} = input;
       const playerBody = this.physicsBodies[client.sessionId];
       const player = this.state.players.get(client.sessionId);
       const enemyID = this.getOtherPlayerID(client.sessionId);
@@ -348,14 +404,17 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         this.playerData[client.sessionId].isJumpKicking = false;
       }
       
-      const { isJumpKicking, isFallenDown } = this.playerData[client.sessionId];
-      
+      const { isJumpKicking, isFallenDown, isRolling } = this.playerData[client.sessionId];
+
       if (!player.isDead && !player.isInputLocked) {
         // Attack (or throw attack)
         const throwReady = (player.level === 'high' && up && player.velX === 0 && !isJumpKicking);
         const doThrowAttack = (throwReady && doAttack);
   
-        if (isGrounded && hasSword && doThrowAttack) {
+        if (isGrounded && doRoll) {
+          this.doRoll(client.sessionId);
+        }
+        else if (isGrounded && hasSword && doThrowAttack) {
           const sword = this.getAttachedSword(client.sessionId);
           const swordBody = this.getAttachedSwordBody(client.sessionId);
 
@@ -410,7 +469,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           this.doJumpKick(client.sessionId);
         }
         // Move / Idle / Default animation logic
-        else if (!throwReady && !isJumpKicking) {
+        else if (!throwReady && !isJumpKicking && !isRolling) {
           // L/R movement
           if (left) {
             if (player.velX > -MAX_SPEED) {
@@ -433,13 +492,26 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
             if (enemyID !== '') {
               const enemy = this.state.players.get(enemyID);
+              const {willTurn} = this.playerData[client.sessionId];
+              const {isRolling: enemyIsRolling} = this.playerData[enemyID];
               
-              if (!enemy.isDead) {
-                if (enemy.x <= player.x) {
-                  player.flipX = true;
+              if (!enemy.isDead && !willTurn) {
+                // Delay turning if enemy is rolling to give enemy a chance to land a punch
+                if (enemy.x <= player.x && !player.flipX ) {
+                  this.playerData[client.sessionId].willTurn = true;
+                  
+                  this.clock.setTimeout(() => {
+                    player.flipX = true;
+                    this.playerData[client.sessionId].willTurn = false;
+                  }, (enemyIsRolling ? ROLL_TURN_DELAY : 0));
                 }
-                else {
-                  player.flipX = false;
+                else if (enemy.x > player.x && player.flipX) {
+                  this.playerData[client.sessionId].willTurn = true;
+
+                  this.clock.setTimeout(() => {
+                    player.flipX = false;
+                    this.playerData[client.sessionId].willTurn = false;
+                  }, (enemyIsRolling ? ROLL_TURN_DELAY : 0));
                 }
               }
             }
@@ -545,7 +617,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         }
       }
       else if (player.isInputLocked) {
-        // Could put custom anims here or something
+        if (isRolling) {
+          player.animMode = 'loop';
+          player.anim = `${player.animPrefix}-rolling`;
+        }
       }
       else if (player.isDead) {
         player.animMode = 'play-hold';
@@ -1021,9 +1096,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       // Sword vs player generic
       this.physics.add.overlap(swordBody, playerBody, () => {
         const swordIsOwnedByPlayer = (sword.attachedTo === player.id);
-        const {isJumpKicking} = this.playerData[player.id];
+        const {isJumpKicking, isRolling} = this.playerData[player.id];
 
-        if (!swordIsOwnedByPlayer && !isJumpKicking) {
+        if (!swordIsOwnedByPlayer && !isJumpKicking && !isRolling) {
           const enemyID = this.getOtherPlayerID(player.id);
 
           if (enemyID !== '') {

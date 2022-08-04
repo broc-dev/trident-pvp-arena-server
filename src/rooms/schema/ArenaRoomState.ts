@@ -142,6 +142,9 @@ export class Player extends Schema {
   @type('number')
   xSwordOffset: number = 0;
 
+  @type('number')
+  xPunchOffset: number = 0;
+
   @type('boolean')
   isInputLocked: boolean = false;
 
@@ -153,9 +156,6 @@ export class Player extends Schema {
 
   @type('boolean')
   isFallenDown: boolean = false;
-
-  @type('boolean')
-  isRolling: boolean = false;
 
   @type('string')
   color: string = '';
