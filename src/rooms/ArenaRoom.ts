@@ -212,6 +212,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     this.playerData[playerID].isJumpKicking = true;
 
+    this.state.players.get(playerID).isAttacking = true;
+
     // Kick X velocity influenced by player's current X velocity
     const kickVelX = (
       (player.flipX ? -1 : 1)
@@ -234,6 +236,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // Lock input
     player.isInputLocked = true;
 
+    // Set player to 'attacking'
+    player.isAttacking = true;
+
     // Move in direction of attack
     const dir = (player.flipX ? -1 : 1);
 
@@ -251,6 +256,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       player.xSwordOffset = 0;
       hitboxShiftInterval.clear();
       player.isInputLocked = false;
+      player.isAttacking = false;
     }, MS_PER_FRAME * SWORD_ATTACK_FRAME_XOFFSETS.length);
   }
 
@@ -336,8 +342,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       const hasSword = (player.animPrefix === 'sword');
       const doResetJumpKick = (this.playerData[client.sessionId].isJumpKicking && isGrounded);
 
-      // Reset jumpkick when they hit the ground
+      // Reset jumpkick & attack status when they hit the ground
       if (doResetJumpKick) {
+        this.playerData[client.sessionId].isAttacking = false;
         this.playerData[client.sessionId].isJumpKicking = false;
       }
       
@@ -1166,6 +1173,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           { name: "sword-forstep-high", from: ["sword-idle-high"], to: "sword-forstep-high" },
           { name: "sword-backstep-low", from: ["sword-idle-low"], to: "sword-backstep-low" },
           { name: "sword-backstep-mid", from: ["sword-idle-mid"], to: "sword-backstep-mid" },
+          { name: "sword-backstep-high", from: ["sword-idle-high"], to: "sword-backstep-high" },
           { name: "sword-crouch", from: ["sword-idle-low", "sword-crouch-jump", "sword-crouch-walk", "sword-crouch-attack"], to: "sword-crouch" },
           { name: "sword-crouch-walk", from: ["sword-crouch"], to: "sword-crouch-walk" },
           { name: "sword-crouch-jump", from: ["sword-crouch", "sword-crouch-walk"], to: "sword-crouch-jump" },
@@ -1215,6 +1223,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     });
 
     // A series of checks to run once each update tick, then provide to State Predicates for the State Machine
+    // Useful for unifying player data checks and providing to the State Machine
     // Example:
     // ------------------------------------------------------------
     // const { hasSword, isGrounded, isCrouching, currentPlayerState, direction } = playerStateChecks(player)
@@ -1228,40 +1237,230 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // ------------------------------------------------------------
     var playerStateChecks = (player: Player) => {
       return {
-        hasSword: (player.animPrefix === 'sword'),
-        isAlive: !player.isDead,
+        hasSword: (player.animPrefix === 'sword'), // true if player has a sword equipped
+        direction: this.playerData[player.id].direction, // Last given 'change-stance' input
+        isAlive: !player.isDead, // Check if player is alive
+        isAttacking: player.isAttacking, // true if player is attacking (stab, jump kick, crouch attack, curbstomp attack)
         isCrouching: (player.anim.includes('crouch')), // Check for currently crouching, sword or nosword
         currentPlayerState: this.playerData[player.id].stateMachine.state, // Check for current state in statemachine
-        isKicked: this.playerData[player.id].isKicked,
-        isFallen: this.playerData[player.id].isFallen,
-        isRolling: this.playerData[player.id].isRolling,
-        isInputLocked: this.playerData[player.id].isInputLocked,
-        isGrounded: this.playerData[player.id].isGrounded,
+        isKicked: this.playerData[player.id].isKicked, // Check if player is currently kicked
+        isJumping: player.isJumping,
+        isFallen: this.playerData[player.id].isFallen, // Check if player is currently fallen
+        isRolling: this.playerData[player.id].isRolling, // Check if player is currently rolling
+        isInputLocked: this.playerData[player.id].isInputLocked, // Check if input is locked
+        isGrounded: this.playerData[player.id].isGrounded, // Check if player is on ground
       }
     }
 
     var stateMachinePredicates = {
       // Example:
       // idle: (player: Player) => { ...condition... },
-      swordIdleLow: (player: Player, hasSword: boolean, isAlive: boolean, isCrouching: boolean, state: string) => {
+
+      /**
+       * ********* Sword Idle States *********
+       */
+      swordIdleLow: (player: Player, hasSword: boolean, direction: string, isAlive: boolean, isCrouching: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
         // Check if player is holding sword,
         // and if player has signaled to change sword positions
-        const direction = this.playerData[player.id].direction;
 
         // Invalidating conditions, check for these first and then return false to skip further evaluation
-        if(!hasSword || player.isDead || player.velX != 0 || direction === '') return false;
+        if(!hasSword || player.isDead 
+          || isKicked || isFallen || isRolling || isInputLocked || player.velX != 0 || direction === '' 
+          || !isCrouching) return false;
 
         // If the player is in the mid position, and signals down, reset the 'direction' change and return true for sword change;
         if (direction === 'low' && player.level === 'mid') {
           this.playerData[player.id].direction = '';
-          this.state.players.get(player.id).level = 'low';
+          player.level = 'low';
           return true;
         // If the player is crouching and signals up, reset the 'direction' change and return true for sword change;
         } else if(direction !== 'down' && isCrouching && player.level === 'low') {
-          
+          return true;
         }
       },
+      swordIdleMid: (player: Player, hasSword: boolean, direction: string, isAlive: boolean, isCrouching: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is holding sword,
+        // and if player has signaled to change sword positions
 
+        // Invalidating conditions, check for these first and then return false to skip further evaluation
+        if(!hasSword || player.isDead 
+          || isKicked || isFallen || isRolling || isInputLocked || player.velX != 0 || direction === '' 
+          || isCrouching) return false;
+        
+        // If player signals 'down' and is 'mid', reset the 'direction' change and return true for sword change;
+        if (direction === 'low' && player.level === 'high') {
+          this.playerData[player.id].direction = '';
+          player.level = 'mid';
+          return true;
+        // If player signals 'up' and is 'low', reset the 'direction' change and return true for sword change;
+        } else if(direction === 'up' && player.level === 'low') {
+          this.playerData[player.id].direction = '';
+          player.level = 'mid';
+          return true;
+        }
+      },
+      swordIdleHigh: (player: Player, hasSword: boolean, direction: string, isAlive: boolean, isCrouching: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is holding sword,
+        // and if player has signaled to change sword positions
+
+        // Invalidating conditions, check for these first and then return false to skip further evaluation
+        if(!hasSword|| player.isDead 
+          || isKicked || isFallen || isRolling || isInputLocked || player.velX != 0 // We don't check for direction === ''
+          || !isCrouching) return false;
+        
+        // If player signals 'down' and is ready to throw sword, 
+        if (direction === 'up' && player.level === 'mid') {
+          this.playerData[player.id].direction = '';
+          player.level = 'high';
+          return true;
+        }
+      },
+      /**
+       * ********* Sword Attack States *********
+       */
+      swordAttackLow: (player: Player, hasSword: boolean, isGrounded: boolean, isCrouching: boolean, isAttacking: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is attacking, if he has a sword, is crouching and if player is grounded
+        if(player.isDead || !isAttacking || !hasSword || !isGrounded || isCrouching) return false;
+        
+        // If player is attacking, and is grounded, return true for sword attack;
+        if(player.level === 'low' && isAttacking) {
+          return true;
+        }
+      },
+      swordAttackMid: (player: Player, hasSword: boolean, isGrounded: boolean, isCrouching: boolean, isAttacking: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is dead, has been kicked, is rolling, is input locked,
+        // make sure attacking, has sword is on the ground, and isn't crouching
+        if(player.isDead || isKicked || isFallen || isRolling || isInputLocked || !isAttacking || !hasSword || !isGrounded || isCrouching) return false;
+        
+        // If player is attacking, and is grounded, return true for sword attack;
+        if(player.level === 'mid' && isAttacking) {
+          return true;
+        }
+      },
+      swordAttackHigh: (player: Player, hasSword: boolean, isGrounded: boolean, isCrouching: boolean, isAttacking: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is dead, has been kicked, is rolling, is input locked,
+        // make sure attacking, has sword is on the ground, and isn't crouching
+        if(player.isDead || isKicked || isFallen || isRolling || isInputLocked || !isAttacking || !hasSword || !isGrounded || isCrouching) return false;
+        
+        // If player is attacking, and is grounded, return true for sword attack;
+        if(player.level === 'high' && isAttacking) {
+          return true;
+        }
+      },
+      /**
+       * ********* Sword Forward & Backward Step States *********
+       */
+      swordForstepLow: (player: Player, hasSword: boolean, isGrounded: boolean, isCrouching: boolean, isAttacking: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is dead, has been kicked, is rolling, is input locked,
+        // make sure not attacking, has sword is on the ground, and isn't crouching
+        if(player.isDead || isKicked || isFallen || isRolling || isInputLocked || isAttacking || !hasSword || !isGrounded || isCrouching) return false;
+        
+        // Check if player is facing direction he's moving
+        var forstepping = (player.flipX && player.velX < 0) || (!player.flipX && player.velX > 0);
+
+        // If player is attacking, and is grounded, return true for sword attack;
+        if(player.velX !== 0 && forstepping && Math.abs(player.velX) < MAX_SPEED && player.level === 'low') {
+          return true;
+        }
+      },
+      swordForstepMid: (player: Player, hasSword: boolean, isGrounded: boolean, isCrouching: boolean, isAttacking: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is dead, has been kicked, is rolling, is input locked,
+        // make sure not attacking, has sword is on the ground, and isn't crouching
+        if(player.isDead || isKicked || isFallen || isRolling || isInputLocked || isAttacking || !hasSword || !isGrounded || isCrouching) return false;
+        
+        // Check if player is facing direction he's moving
+        var forstepping = (player.flipX && player.velX < 0) || (!player.flipX && player.velX > 0);
+
+        // If player is attacking, and is grounded, return true for sword attack;
+        if(player.velX !== 0 && forstepping && Math.abs(player.velX) < MAX_SPEED && player.level === 'mid') {
+          return true;
+        }
+      },
+      swordForstepHigh: (player: Player, hasSword: boolean, isGrounded: boolean, isCrouching: boolean, isAttacking: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is dead, has been kicked, is rolling, is input locked,
+        // make sure not attacking, has sword is on the ground, and isn't crouching
+        if(player.isDead || isKicked || isFallen || isRolling || isInputLocked || isAttacking || !hasSword || !isGrounded || isCrouching) return false;
+        
+        // Check if player is facing direction he's moving (stepping forward)
+        var forstepping = (player.flipX && player.velX < 0) || (!player.flipX && player.velX > 0);
+
+        // If player is attacking, and is grounded, return true for sword attack;
+        if(player.velX !== 0 && forstepping && Math.abs(player.velX) < MAX_SPEED && player.level === 'high') {
+          return true;
+        }
+      },
+      swordBackstepLow: (player: Player, hasSword: boolean, isGrounded: boolean, isCrouching: boolean, isAttacking: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is dead, has been kicked, is rolling, is input locked,
+        // make sure not attacking, has sword is on the ground, and isn't crouching
+        if(player.isDead || isKicked || isFallen || isRolling || isInputLocked || isAttacking || !hasSword || !isGrounded || isCrouching) return false;
+        
+        // Check if player is moving opposite direction he's facing (stepping back)
+        var backstepping = (player.flipX && player.velX > 0) || (!player.flipX && player.velX < 0);
+
+        // If player is attacking, and is grounded, return true for sword attack;
+        if(player.velX !== 0 && backstepping && Math.abs(player.velX) === MAX_SPEED && player.level === 'low') {
+          return true;
+        }
+      },
+      swordBackstepMid: (player: Player, hasSword: boolean, isGrounded: boolean, isCrouching: boolean, isAttacking: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is dead, has been kicked, is rolling, is input locked,
+        // make sure not attacking, has sword is on the ground, and isn't crouching
+        if(player.isDead || isKicked || isFallen || isRolling || isInputLocked || isAttacking || !hasSword || !isGrounded || isCrouching) return false;
+        
+        // Check if player is moving opposite direction he's facing (stepping back)
+        var backstepping = (player.flipX && player.velX > 0) || (!player.flipX && player.velX < 0);
+
+        // If player is attacking, and is grounded, return true for sword attack;
+        if(player.velX !== 0 && backstepping && Math.abs(player.velX) === MAX_SPEED && player.level === 'mid') {
+          return true;
+        }
+      },
+      swordBackstepHigh: (player: Player, hasSword: boolean, isGrounded: boolean, isCrouching: boolean, isAttacking: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is dead, has been kicked, is rolling, is input locked,
+        // make sure not attacking, has sword is on the ground, and isn't crouching
+        if(player.isDead || isKicked || isFallen || isRolling || isInputLocked || isAttacking || !hasSword || !isGrounded || isCrouching) return false;
+        
+        // Check if player is moving opposite direction he's facing (stepping back)
+        var backstepping = (player.flipX && player.velX > 0) || (!player.flipX && player.velX < 0);
+
+        // If player is attacking, and is grounded, return true for sword attack;
+        if(player.velX !== 0 && backstepping && Math.abs(player.velX) === MAX_SPEED && player.level === 'high') {
+          return true;
+        }
+      },
+      /**
+       * ********* Sword Crouch States *********
+       */
+      swordCrouch: (player: Player, hasSword: boolean, direction: string, isGrounded: boolean, isCrouching: boolean, isAttacking: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is dead, has been kicked, is rolling, is input locked,
+        // make sure not attacking, has sword is on the ground, and is crouching
+        if(player.isDead || isKicked || isFallen || isRolling || isInputLocked || isAttacking || !hasSword || !isGrounded || !isCrouching) return false;
+        
+        // If player sword is level 'low' and player is pressing 'down', then return true for crouching
+        if(player.level === 'low' && direction === 'down') {
+          return true;
+        }
+      },
+      swordCrouchWalk: (player: Player, hasSword: boolean, direction: string, isGrounded: boolean, isCrouching: boolean, isAttacking: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is dead, has been kicked, is rolling, is input locked,
+        // make sure not attacking, has sword is on the ground, and is crouching
+        if(player.isDead || isKicked || isFallen || isRolling || isInputLocked || isAttacking || !hasSword || !isGrounded || !isCrouching) return false;
+        
+        // If player is level 'mid', is pressing 'down', and walking, then return true for crouch walking
+        if(player.level === 'mid' && direction === 'down' && player.velX !== 0) {
+          return true;
+        }
+      },
+      swordCrouchJump: (player: Player, hasSword: boolean, direction: string, isGrounded: boolean, isCrouching: boolean, isAttacking: boolean, isKicked: boolean, isFallen: boolean, isRolling: boolean, isInputLocked: boolean) => {
+        // Check if player is dead, has been kicked, is rolling, is input locked,
+        // make sure not attacking, has sword is on the ground, and is crouching
+        if(player.isDead || isKicked || isFallen || isRolling || isInputLocked || isAttacking || !hasSword || !isGrounded || !isCrouching) return false;
+        
+        // If player is level 'mid', is pressing 'down', and jumping, then return true for crouch jumping
+        if(player.level === 'mid' && direction === 'down' && player.isJumping) {
+          return true;
+        }
+      }
     };
 
     // Initialize playerData
