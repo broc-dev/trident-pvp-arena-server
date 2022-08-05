@@ -390,7 +390,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     // Read direct keyboard input from player, move player accordingly
     this.onMessage('keyboard-input', (client: Client, input: Record<string, boolean>) => {
-      const {up, left, right, down, attack: doAttack, jump, roll: doRoll} = input;
+      const {up, left, right, down, attack: doAttack, jump} = input;
       const playerBody = this.physicsBodies[client.sessionId];
       const player = this.state.players.get(client.sessionId);
       const enemyID = this.getOtherPlayerID(client.sessionId);
@@ -411,10 +411,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         const throwReady = (player.level === 'high' && up && player.velX === 0 && !isJumpKicking);
         const doThrowAttack = (throwReady && doAttack);
   
-        if (isGrounded && doRoll) {
-          this.doRoll(client.sessionId);
-        }
-        else if (isGrounded && hasSword && doThrowAttack) {
+        if (isGrounded && hasSword && doThrowAttack) {
           const sword = this.getAttachedSword(client.sessionId);
           const swordBody = this.getAttachedSwordBody(client.sessionId);
 
@@ -526,6 +523,12 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             // playerBody.y += 18;
 
             playerBody.setVelocityY(-PLAYER_JUMP_FORCE);
+          }
+
+          // If player is running full tilt, on the ground, and they press down...
+          if (down && isGrounded && [MAX_SPEED, -MAX_SPEED].includes(player.velX)) {
+            // Execute a roll
+            this.doRoll(client.sessionId);
           }
 
           // Pickup sword
