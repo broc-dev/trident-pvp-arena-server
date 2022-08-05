@@ -42,12 +42,10 @@ const MS_PER_FRAME = 100;
 
 const SWORD_ATTACK_FRAME_XOFFSETS: Array<number> = [
   // 0,
-  -1,
-  -2,
+  18,
   16,
-  14,
-  -2,
-  -1
+  -1,
+  0
 ];
 
 const PUNCH_ATTACK_FRAME_XOFFSETS: Array<number> = [
