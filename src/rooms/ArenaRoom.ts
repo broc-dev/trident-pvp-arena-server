@@ -35,6 +35,12 @@ const OBJECT_BODIES: Record<string, any> = {
     height: 6,
     originX: 0,
     originY: 0.5
+  },
+  'fist': {
+    width: 4,
+    height: 5,
+    originX: 0.5,
+    originY: 0.5
   }
 };
 
@@ -50,14 +56,10 @@ const SWORD_ATTACK_FRAME_XOFFSETS: Array<number> = [
 
 const PUNCH_ATTACK_FRAME_XOFFSETS: Array<number> = [
   // 0,
+  20,
+  20,
   0,
-  0,
-  -1,
-  8,
-  27,
-  27,
-  8,
-  -1
+  -10
 ];
 
 const FPS = 60;
@@ -83,7 +85,8 @@ const DISARM_VELOCITY = 200;
 const ROLL_VELOCITY = 150;
 const ROLL_NUM_FRAMES = 6;
 
-const ROLL_TURN_DELAY = 1250; // The number of MS it takes a player to turn after being rolled past
+// const ROLL_TURN_DELAY = 1250; // The number of MS it takes a player to turn after being rolled past
+const ROLL_TURN_DELAY = 8000; // The number of MS it takes a player to turn after being rolled past
 
 // https://stackoverflow.com/questions/1527803/generating-random-whole-numbers-in-javascript-in-a-specific-range
 function getRandomInt(min: number, max: number) {
@@ -178,11 +181,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     return this.physicsBodies[id];
   }
 
+  getPlayerFist(sessionId: string): Body {
+    return this.physicsBodies[`fist_${sessionId}`];
+  }
+
   getOtherPlayerID(sessionId: string): string {
     let otherPlayerID = '';
 
     Object.keys(this.physicsBodies).forEach((key) => {
-      if (!key.startsWith('sword_') && key !== sessionId) {
+      if (!key.startsWith('sword_') && !key.startsWith('fist_') && key !== sessionId) {
         otherPlayerID = key;
       }
     });
@@ -373,7 +380,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         }
 
         // Reposition physics body of sword based on new level
-        this.moveHeldSwords();
+        this.moveAttackBoxes();
 
         if (hasEnemyWithSword) {
           const areSwordsTouching = this.physics.overlap(playerSword, enemySword, null, null, this);
@@ -687,7 +694,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   update(deltaTime: any) {
     this.physics.world.update(this.physicsTick * 1000, 1000 / FPS);
     this.physicsTick++;
-    this.moveHeldSwords();
+    this.moveAttackBoxes();
     this.syncStateWithPhysics();
     this.syncHitboxDebug();
     this.watchForRespawnsAndWin();
@@ -829,11 +836,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     });
   }
 
-  moveHeldSwords() {
+  moveAttackBoxes() {
     this.state.players.forEach((player, playerID) => {
       const isPlayerHoldingSword = (player.animPrefix === 'sword');
       const sword = this.getAttachedSword(playerID);
       const swordBody = this.getAttachedSwordBody(playerID);
+      const playerBody = this.physicsBodies[playerID];
+      const playerX = (playerBody.x + (PLAYER_BODY.width * PLAYER_BODY.originX));
+      const playerY = (playerBody.y + (PLAYER_BODY.height * PLAYER_BODY.originY));
+      const flipMod = (player.flipX ? -1 : 1);
       
       if (sword !== null) {
         const hitboxDebug = this.state.hitboxDebug.get(sword.id);
@@ -855,15 +866,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           sword.isActive = isSwordOutAnim;
           hitboxDebug.isActive = isSwordOutAnim;
 
-          const flipMod = (player.flipX ? -1 : 1);
           const flipOffset = (player.flipX ? swordBody.width : 0);
   
           if (isSwordOutAnim) {
             // Sync / offset sword in idle & stepping anims
-            const playerBody = this.physicsBodies[playerID];
-            const playerX = (playerBody.x + (PLAYER_BODY.width * PLAYER_BODY.originX));
-            const playerY = (playerBody.y + (PLAYER_BODY.height * PLAYER_BODY.originY));
-  
             // WARNING -- MAGIC NUMBERS INCOMING
             if (player.level === 'low') {
               swordBody.x = playerX + (19 * flipMod) - flipOffset;
@@ -885,6 +891,13 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             swordBody.x = ((player.xSwordOffset * flipMod) - flipOffset);
           }
         }
+      }
+      else {
+        const fistBody = this.getPlayerFist(playerID);
+        const bodyOffsetX = ((20 + player.xPunchOffset) * flipMod);
+
+        fistBody.x = playerX + bodyOffsetX;
+        fistBody.y = playerY - 32;
       }
     });
   }
@@ -1084,6 +1097,32 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     // Disable gravity on the sword body
     this.physicsBodies[swordID].setAllowGravity(false);
+  }
+
+  initFistOverlaps(fistID: string) {
+    const playerID = fistID.replace('fist_', '');
+    const enemyID = this.getOtherPlayerID(playerID);
+
+    if (enemyID !== '') {
+      const player = this.state.players.get(playerID);
+      const fistBody = this.physicsBodies[fistID];
+      const enemyBody = this.physicsBodies[enemyID];
+
+      console.log('adding overlap', fistID, enemyID);
+      
+      // Player fist vs enemy body collision
+      this.physics.add.overlap(fistBody, enemyBody, () => {
+        const hasSword = (player.animPrefix === 'sword');
+        const {isAttacking} = player;
+
+        console.log('is overlapping', hasSword, isAttacking);
+
+        if (!hasSword && isAttacking) {
+          // Knock down enemy and disarm?
+          console.log("PUNCHED!");
+        }
+      });
+    }
   }
 
   initSwordOverlaps(swordID: string) {
@@ -1620,6 +1659,14 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       PLAYER_BODY.height
     );
 
+    this.createPhysicsBody(
+      `fist_${client.sessionId}`,
+      spawnX,
+      spawnY,
+      OBJECT_BODIES['fist'].width,
+      OBJECT_BODIES['fist'].height
+    );
+
     this.givePlayerSword(client.sessionId);
 
     // Add player v map collision detection
@@ -1652,6 +1699,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
         if (isSword) {
           this.initSwordOverlaps(object.id);
+        }
+      });
+
+      // Register fist overlaps
+      Object.keys(this.physicsBodies).forEach((bodyID) => {
+        const isFist = (bodyID.startsWith('fist_'));
+
+        if (isFist) {
+          this.initFistOverlaps(bodyID);
         }
       });
 
