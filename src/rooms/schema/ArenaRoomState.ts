@@ -145,6 +145,9 @@ export class Player extends Schema {
   @type('number')
   xPunchOffset: number = 0;
 
+  @type('number')
+  xFootOffset: number = 0;
+
   @type('boolean')
   isInputLocked: boolean = false;
 

@@ -4,7 +4,7 @@ import { ArcadePhysics } from 'arcade-physics';
 import StateMachine from "javascript-state-machine";
 import { Body } from 'arcade-physics/lib/physics/arcade/Body';
 import { StaticBody } from "arcade-physics/lib/physics/arcade/StaticBody";
-import SingularityMap from "../maps/SingularityMap";
+import SingularityMap from "../maps/SingularityMap02";
 // @ts-ignore
 import {v4 as uuidv4} from 'uuid';
 
@@ -29,6 +29,8 @@ const PLAYER_BODY = {
   originY: 1
 };
 
+const PLAYER_BODY_CROUCH_HEIGHT_MODIFIER = 0.4;
+
 const OBJECT_BODIES: Record<string, any> = {
   'sword': {
     width: 26,
@@ -38,6 +40,12 @@ const OBJECT_BODIES: Record<string, any> = {
   },
   'fist': {
     width: 4,
+    height: 5,
+    originX: 0.5,
+    originY: 0.5
+  },
+  'foot': {
+    width: 10,
     height: 5,
     originX: 0.5,
     originY: 0.5
@@ -117,7 +125,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     isKicked: false,
     direction: '',
     isRolling: false,
-    willTurn: false
+    willTurn: false,
+    isCrouching: false
   };
   firstPlayerID: string = '';
   secondPlayerID: string = '';
@@ -600,11 +609,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     return this.physicsBodies[`fist_${sessionId}`];
   }
 
+  getPlayerFoot(sessionId: string): Body {
+    return this.physicsBodies[`foot_${sessionId}`];
+  }
+
   getOtherPlayerID(sessionId: string): string {
     let otherPlayerID = '';
 
     Object.keys(this.physicsBodies).forEach((key) => {
-      if (!key.startsWith('sword_') && !key.startsWith('fist_') && key !== sessionId) {
+      if (!key.startsWith('sword_') && !key.startsWith('fist_') && !key.startsWith('foot_') && key !== sessionId) {
         otherPlayerID = key;
       }
     });
@@ -687,6 +700,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   doAttack(playerID: string) {
     const player = this.state.players.get(playerID);
     const hasSword = (player.animPrefix === 'sword');
+    const {isCrouching} = this.playerData[playerID];
 
     // Start clock 
     this.clock.start();
@@ -697,43 +711,62 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // Set player to 'attacking'
     player.isAttacking = true;
 
-    // Move in direction of attack
-    if (hasSword) {
-      const dir = (player.flipX ? -1 : 1);
-
-      this.physicsBodies[playerID].setVelocityX(dir * LUNGE_VELOCITY);
-
-      // Adjust sword hitbox by mapped xoffset / frame
-      let frame = 0;
-      const hitboxShiftInterval = this.clock.setInterval(() => {
-        player.xSwordOffset = SWORD_ATTACK_FRAME_XOFFSETS[frame];
-        frame++;
-      }, MS_PER_FRAME);
-
-      // Clear after last frame
+    if (isCrouching) {
       this.clock.setTimeout(() => {
-        player.xSwordOffset = 0;
-        hitboxShiftInterval.clear();
         player.isInputLocked = false;
         player.isAttacking = false;
-      }, MS_PER_FRAME * SWORD_ATTACK_FRAME_XOFFSETS.length);
+      }, MS_PER_FRAME * 8); // @todo replace w/ constant
     }
     else {
-      // Adjust punch hitbox by mapped xoffset / frame
-      let frame = 0;
-      const hitboxShiftInterval = this.clock.setInterval(() => {
-        player.xPunchOffset = PUNCH_ATTACK_FRAME_XOFFSETS[frame];
-        frame++;
-      }, MS_PER_FRAME);
+      // Move in direction of attack
+      if (hasSword) {
+        const dir = (player.flipX ? -1 : 1);
   
-      // Clear after last frame
-      this.clock.setTimeout(() => {
-        player.xPunchOffset = 0;
-        hitboxShiftInterval.clear();
-        player.isInputLocked = false;
-        player.isAttacking = false;
-      }, MS_PER_FRAME * SWORD_ATTACK_FRAME_XOFFSETS.length);
+        this.physicsBodies[playerID].setVelocityX(dir * LUNGE_VELOCITY);
+  
+        // Adjust sword hitbox by mapped xoffset / frame
+        let frame = 0;
+        const hitboxShiftInterval = this.clock.setInterval(() => {
+          player.xSwordOffset = SWORD_ATTACK_FRAME_XOFFSETS[frame];
+          frame++;
+        }, MS_PER_FRAME);
+  
+        // Clear after last frame
+        this.clock.setTimeout(() => {
+          player.xSwordOffset = 0;
+          hitboxShiftInterval.clear();
+          player.isInputLocked = false;
+          player.isAttacking = false;
+        }, MS_PER_FRAME * SWORD_ATTACK_FRAME_XOFFSETS.length);
+      }
+      else {
+        // Adjust punch hitbox by mapped xoffset / frame
+        let frame = 0;
+        const hitboxShiftInterval = this.clock.setInterval(() => {
+          player.xPunchOffset = PUNCH_ATTACK_FRAME_XOFFSETS[frame];
+          frame++;
+        }, MS_PER_FRAME);
+    
+        // Clear after last frame
+        this.clock.setTimeout(() => {
+          player.xPunchOffset = 0;
+          hitboxShiftInterval.clear();
+          player.isInputLocked = false;
+          player.isAttacking = false;
+        }, MS_PER_FRAME * SWORD_ATTACK_FRAME_XOFFSETS.length);
+      }
     }
+  }
+
+  exitCrouch(playerID: string) {
+    this.playerData[playerID].isCrouching = false;
+    this.physicsBodies[playerID].setSize(PLAYER_BODY.width, PLAYER_BODY.height);
+    this.physicsBodies[playerID].y -= (PLAYER_BODY.height * (1 - PLAYER_BODY_CROUCH_HEIGHT_MODIFIER));
+  }
+
+  enterCrouch(playerID: string) {
+    this.playerData[playerID].isCrouching = true;
+    this.physicsBodies[playerID].setSize(PLAYER_BODY.width, PLAYER_BODY.height * PLAYER_BODY_CROUCH_HEIGHT_MODIFIER);
   }
 
   onCreate (options: any) {
@@ -779,7 +812,13 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   
         if (direction === 'up') {
           if (player.level === 'low') {
-            player.level = 'mid';
+            if (this.playerData[client.sessionId].isCrouching) {
+              this.exitCrouch(client.sessionId);
+              player.level = 'low';
+            }
+            else {
+              player.level = 'mid';
+            }
           }
           else if (player.level === 'mid') {
             player.level = 'high';
@@ -791,6 +830,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           }
           else if (player.level === 'mid') {
             player.level = 'low';
+          }
+          else if (player.level === 'low' && !this.playerData[client.sessionId].isCrouching) {
+            this.enterCrouch(client.sessionId);
           }
         }
 
@@ -804,6 +846,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             this.disarmPlayer(enemyID, direction);
             this.broadcast('camera-flash');
           }
+        }
+      }
+      // Allow players w/o sword to still crouch
+      else if (player !== undefined && !player.isDead) {
+        if (direction === 'down' && !this.playerData[client.sessionId].isCrouching) {
+          this.enterCrouch(client.sessionId);
+        }
+        else if (direction === 'up' && this.playerData[client.sessionId].isCrouching) {
+          this.exitCrouch(client.sessionId);
         }
       }
     });
@@ -824,7 +875,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         this.playerData[client.sessionId].isJumpKicking = false;
       }
       
-      const { isJumpKicking, isFallenDown, isRolling } = this.playerData[client.sessionId];
+      const { isJumpKicking, isFallenDown, isRolling, isCrouching } = this.playerData[client.sessionId];
       
       if (!player.isDead && !player.isInputLocked) {
         // Attack (or throw attack)
@@ -874,7 +925,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           this.broadcast('player-attack', {
             playerID: client.sessionId,
             hasSword,
-            level: player.level
+            level: player.level,
+            isCrouching
           });
 
           player.velX = 0;
@@ -980,63 +1032,80 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         }
   
         // Animation logic
-        if (isJumpKicking) {
-          player.animMode = 'play-hold';
-          player.anim = `${player.animPrefix}-jumpkick`;
-        }
-        else if(isFallenDown) {
-          player.animMode = 'play-hold';
-          player.anim = `layDown`;
-        }
-        else if (hasSword && isGrounded && doThrowAttack) {
-          player.animMode = 'play-hold';
-          player.anim = 'sword-throw-attack';
-          player.animPrefix = 'nosword'; // Must be changed AFTER sending anim key
-        }
-        else if (hasSword && isGrounded && throwReady) {
-          player.animMode = 'play-hold';
-          player.anim = `sword-throw-ready`;
-        }
-        else if (isGrounded) {
-          player.animMode = 'loop';
-  
-          if (player.velX === 0) {
-            if (hasSword) {
-              player.anim = `${player.animPrefix}-idle-${player.level}`;
+        if (isCrouching) {
+          if (isGrounded) {
+            player.animMode = 'loop';
+
+            if (player.velX === 0) {
+              player.anim = `${player.animPrefix}-crouch-idle`;
             }
             else {
-              player.anim = `${player.animPrefix}-idle`;
+              player.anim = `${player.animPrefix}-crouch-walk`;
             }
           }
-          else if (
-            player.flipX && player.velX < 0 && player.velX > -MAX_SPEED ||
-            !player.flipX && player.velX > 0 && player.velX < MAX_SPEED
-          ) {
-            if (hasSword) {
-              player.anim = `${player.animPrefix}-forstep-${player.level}`;
-            }
-            else {
-              player.anim = `${player.animPrefix}-forstep`;
-            }
-          }
-          else if (
-            player.flipX && player.velX > 0 && player.velX < MAX_SPEED ||
-            !player.flipX && player.velX < 0 && player.velX > -MAX_SPEED
-          ) {
-            if (hasSword) {
-              player.anim = `${player.animPrefix}-backstep-${player.level}`;
-            }
-            else {
-              player.anim = `${player.animPrefix}-backstep`;
-            }
-          }
-          else if (player.velX === MAX_SPEED || player.velX === -MAX_SPEED) {
-            player.anim = `${player.animPrefix}-run`;
+          else {
+            player.anim = `${player.animPrefix}-crouch-jump`;
           }
         }
         else {
-          player.animMode = 'loop';
-          player.anim = `${player.animPrefix}-flip`;
+          if (isJumpKicking) {
+            player.animMode = 'play-hold';
+            player.anim = `${player.animPrefix}-jumpkick`;
+          }
+          else if(isFallenDown) {
+            player.animMode = 'play-hold';
+            player.anim = `layDown`;
+          }
+          else if (hasSword && isGrounded && doThrowAttack) {
+            player.animMode = 'play-hold';
+            player.anim = 'sword-throw-attack';
+            player.animPrefix = 'nosword'; // Must be changed AFTER sending anim key
+          }
+          else if (hasSword && isGrounded && throwReady) {
+            player.animMode = 'play-hold';
+            player.anim = `sword-throw-ready`;
+          }
+          else if (isGrounded) {
+            player.animMode = 'loop';
+    
+            if (player.velX === 0) {
+              if (hasSword) {
+                player.anim = `${player.animPrefix}-idle-${player.level}`;
+              }
+              else {
+                player.anim = `${player.animPrefix}-idle`;
+              }
+            }
+            else if (
+              player.flipX && player.velX < 0 && player.velX > -MAX_SPEED ||
+              !player.flipX && player.velX > 0 && player.velX < MAX_SPEED
+            ) {
+              if (hasSword) {
+                player.anim = `${player.animPrefix}-forstep-${player.level}`;
+              }
+              else {
+                player.anim = `${player.animPrefix}-forstep`;
+              }
+            }
+            else if (
+              player.flipX && player.velX > 0 && player.velX < MAX_SPEED ||
+              !player.flipX && player.velX < 0 && player.velX > -MAX_SPEED
+            ) {
+              if (hasSword) {
+                player.anim = `${player.animPrefix}-backstep-${player.level}`;
+              }
+              else {
+                player.anim = `${player.animPrefix}-backstep`;
+              }
+            }
+            else if (player.velX === MAX_SPEED || player.velX === -MAX_SPEED) {
+              player.anim = `${player.animPrefix}-run`;
+            }
+          }
+          else {
+            player.animMode = 'loop';
+            player.anim = `${player.animPrefix}-flip`;
+          }
         }
       }
       else if (player.isInputLocked) {
@@ -1315,6 +1384,13 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         fistBody.x = playerX + bodyOffsetX;
         fistBody.y = playerY - 32;
       }
+      
+      // Move foot
+      const {isCrouching} = this.playerData[playerID];
+      const footBody = this.getPlayerFoot(playerID);
+      const footBodyOffsetX = ((30 + player.xFootOffset) * flipMod);
+      footBody.x = playerX + footBodyOffsetX;
+      footBody.y = playerY - (isCrouching ? (5 + PLAYER_BODY.height * (1 - PLAYER_BODY_CROUCH_HEIGHT_MODIFIER)) : 5);
     });
   }
 
@@ -1540,6 +1616,30 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.physicsBodies[swordID].setAllowGravity(false);
   }
 
+  initFootOverlaps(footID: string) {
+    const playerID = footID.replace('foot_', '');
+    const enemyID = this.getOtherPlayerID(playerID);
+
+    if (enemyID !== '') {
+      const player = this.state.players.get(playerID);
+      const footBody = this.physicsBodies[footID];
+      const enemyBody = this.physicsBodies[enemyID];
+
+      console.log('adding overlap', footID, enemyID);
+      
+      // Player foot vs enemy body collision
+      this.physics.add.overlap(footBody, enemyBody, () => {
+        const {isAttacking} = player;
+
+        console.log('is overlapping', isAttacking);
+
+        if (isAttacking) {
+          // Knock down enemy and disarm?
+          console.log("KICKED!");
+        }
+      });
+    }
+  }
   initFistOverlaps(fistID: string) {
     const playerID = fistID.replace('fist_', '');
     const enemyID = this.getOtherPlayerID(playerID);
@@ -1808,6 +1908,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       // We're alone in the room, pick random side of room_0
       
       const spawnPoint = spawnPoints[getRandomInt(0, spawnPoints.length - 1)];
+      console.log(spawnPoints);
       spawnX = spawnPoint.x;
       spawnY = spawnPoint.y;
 
@@ -1865,6 +1966,14 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       OBJECT_BODIES['fist'].height
     );
 
+    this.createPhysicsBody(
+      `foot_${client.sessionId}`,
+      spawnX,
+      spawnY,
+      OBJECT_BODIES['foot'].width,
+      OBJECT_BODIES['foot'].height
+    );
+
     this.givePlayerSword(client.sessionId);
 
     // Add player v map collision detection
@@ -1903,9 +2012,13 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       // Register fist overlaps
       Object.keys(this.physicsBodies).forEach((bodyID) => {
         const isFist = (bodyID.startsWith('fist_'));
+        const isFoot = (bodyID.startsWith('foot_'));
 
         if (isFist) {
           this.initFistOverlaps(bodyID);
+        }
+        else if (isFoot) {
+          this.initFootOverlaps(bodyID);
         }
       });
 
