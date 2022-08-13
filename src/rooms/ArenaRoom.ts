@@ -52,12 +52,12 @@ const MS_PER_FRAME = 50;
 
 const SWORD_ATTACK_FRAME_XOFFSETS: Array<number> = [
   // 0,
-  6,
   19,
-  18,
-  11,
+  19,
   8,
+  6,
   4,
+  3,
   -1,
   0
 ];
@@ -123,8 +123,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   lastKillerID: string = '';
   playerData: Record<string, Record<string, any>> = {}; // ID => Item => Value
   swordLifespans: Map<string, number> = new Map<string, number>(); // ID => Time
+  playerRespawnTimers: Map<string, number> = new Map<string, number>();
   initPlayerData: Record<string, any> = {
     keyPresses: {},
+    respawnTimer: 0,
     isInvincible: false,
     isJumpKicking: false,
     isFallenDown: false,
@@ -659,16 +661,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         playerID: playerID
       });
 
-      // Respawn player in 5 seconds
-      this.clock.setTimeout(() => {
-        const player = this.state.players.get(playerID);
-        // Make sure player is dead and hasn't already respawned
-        if(player.isDead) {
-          const spawnPoint = this.getNextPlayerSpawnPoint(player);
-          console.log(`Spawning ${player.playerName} in "${spawnPoint.room}" at X:${spawnPoint.x}, Y:${spawnPoint.y}`)
-          this.respawn(playerID, spawnPoint.x, spawnPoint.y);
-        }
-      }, 5000);
+      // Respawn player in 3 seconds
+      this.playerRespawnTimers.set(playerID, 3000);
     }
     // Prevent death if player doesn't exist
     else if (typeof player === 'undefined') {
@@ -935,9 +929,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           this.state.hitboxDebug.get(sword[1].id).isLethal = true;
 
           swordBody[0].x = playerX + (8 * flipMod) - flipOffset;
-          swordBody[0].y = playerY - 40;
+          swordBody[0].y = playerY - 38;
           swordBody[1].x = playerX + (8 * flipMod) - flipOffset;
-          swordBody[1].y = playerY - 40;
+          swordBody[1].y = playerY - 38;
   
           // Disable gravity when thrown
           swordBody[0].setAllowGravity(false);
@@ -1059,6 +1053,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
                     // @todo Remove logging
                     console.log(`[${player.playerName}] picked up ${object.id}`);
+                    this.broadcast('player-pickup', player.id);
                     object.isTextureVisible = false;
                     swordBody.setAllowGravity(false);
                     swordTipBody.setAllowGravity(false);
@@ -1262,7 +1257,25 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.watchForRespawnsAndWin();
     this.updatePlayerStates();
     this.watchForFalls();
+    this.checkPlayerRespawnTimers(deltaTime);
     this.checkObjectLives(deltaTime);
+  }
+
+  checkPlayerRespawnTimers(d: number) {
+    if(typeof this.playerRespawnTimers !== undefined) {
+      var keys = [...this.playerRespawnTimers.keys()];
+      
+      for(var i in keys) {
+        var newVal = this.playerRespawnTimers.get(keys[i]) - d;
+        this.playerRespawnTimers.set(keys[i], newVal);
+        if(newVal <= 0) {
+          const player = this.state.players.get(keys[i]);
+          const spawnPoint = this.getNextPlayerSpawnPoint(player);
+          console.log(`Spawning ${player.playerName} in "${spawnPoint.room}" at X:${spawnPoint.x}, Y:${spawnPoint.y}`)
+          this.respawn(keys[i], spawnPoint.x, spawnPoint.y);
+        }
+      }
+    }
   }
 
   // Remove swords that have lived past their expiry (for swords in air, and on ground)
@@ -1595,7 +1608,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       this.deleteSword(this.getAttachedSword(playerID)[0].id);
     }
 
+    // Make player invincible for a short period of time
     this.playerData[playerID].isInvincible = true;
+
+    // Remove player respawn timer.
+    this.playerRespawnTimers.delete(playerID);
 
     // Set velocity x & y to 0. This will prevent the player from moving when first respawning
     this.physicsBodies[playerID].velocity.x = this.physicsBodies[playerID].velocity.y = 0;
@@ -1709,7 +1726,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     const sword = this.getAttachedSword(playerID);
 
-    if (sword === null) {
+    if (sword[0] === null && sword[1] === null) {
       return null;
     }
     else {
@@ -1912,6 +1929,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       if (object.texture === 'sword' && object.id !== swordID) {
         let overlapExists = false;
         const otherSwordBody = this.physicsBodies[object.id];
+        const otherSwordId = object.id.replace('sword_', 'tip_')
+        const otherSwordTipBody = this.physicsBodies[otherSwordId];
 
         // Iterate over all active colliders in physics world
         this.physics.world.colliders.getActive().forEach((collider) => {
@@ -1943,8 +1962,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
                 const playerDir = (player.flipX ? 1 : -1);
                 const enemyDir = (enemy.flipX ? 1 : -1);
   
-                playerBody.setVelocityX(SWORD_BOUNCEBACK * playerDir);
-                enemyBody.setVelocityX(SWORD_BOUNCEBACK * enemyDir);
+                playerBody.setVelocity(SWORD_BOUNCEBACK * playerDir, -SWORD_BOUNCEBACK * playerDir);
+                enemyBody.setVelocity(SWORD_BOUNCEBACK * enemyDir, -SWORD_BOUNCEBACK * enemyDir);
   
                 player.isInputLocked = true;
                 enemy.isInputLocked = true;
@@ -1967,14 +1986,23 @@ export class ArenaRoom extends Room<ArenaRoomState> {
                   swordBody.setVelocity(0, 0);
                   swordBody.setAllowGravity(true);
                   this.physics.add.collider(swordBody, this.physicsMap);
+                  swordTipBody.setVelocity(0, 0);
+                  swordTipBody.setAllowGravity(true);
+                  this.physics.add.collider(swordTipBody, this.physicsMap);
+                  this.broadcast('thrown-sword-parry');
                   this.broadcast('camera-flash');
                 }
               }
               else if (isSword2Thrown && !isSword1Thrown) {
+                
                 if (otherSwordBody.velocity.x !== 0) {
                   otherSwordBody.setVelocity(0, 0);
                   otherSwordBody.setAllowGravity(true);
                   this.physics.add.collider(otherSwordBody, this.physicsMap);
+                  otherSwordTipBody.setVelocity(0, 0);
+                  otherSwordTipBody.setAllowGravity(true);
+                  this.physics.add.collider(otherSwordTipBody, this.physicsMap);
+                  this.broadcast('thrown-sword-parry');
                   this.broadcast('camera-flash');
                 }
               }
@@ -2164,9 +2192,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       
       spawnX = spawnPoint.x;
       spawnY = spawnPoint.y;
-
-      // Store the spawnPoint index that was selected for player 1, so we can make sure player 2 doesn't spawn in the same location
-      this.playerData[client.sessionId].initialSpawnPointIndex = initialSpawnPointIndex;
 
       this.firstPlayerID = client.sessionId;
     }
