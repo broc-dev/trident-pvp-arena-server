@@ -1748,6 +1748,28 @@ export class ArenaRoom extends Room<ArenaRoomState> {
                 }, SWORD_BOUNCEBACK_DELAY);
               }
             }
+            // Handle thrown sword parrying
+            else {
+              const isSword1Thrown = (sword.attachedTo === '');
+              const isSword2Thrown = (object.attachedTo === '');
+
+              if (isSword1Thrown && !isSword2Thrown) {
+                if (swordBody.velocity.x !== 0) {
+                  swordBody.setVelocity(0, 0);
+                  swordBody.setAllowGravity(true);
+                  this.physics.add.collider(swordBody, this.physicsMap);
+                  this.broadcast('camera-flash');
+                }
+              }
+              else if (isSword2Thrown && !isSword1Thrown) {
+                if (otherSwordBody.velocity.x !== 0) {
+                  otherSwordBody.setVelocity(0, 0);
+                  otherSwordBody.setAllowGravity(true);
+                  this.physics.add.collider(otherSwordBody, this.physicsMap);
+                  this.broadcast('camera-flash');
+                }
+              }
+            }
           });
         }
       }
