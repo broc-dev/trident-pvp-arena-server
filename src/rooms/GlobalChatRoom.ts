@@ -56,7 +56,6 @@ export class GlobalChatRoom extends Room<ChatRoomState> {
         this.playerIDtoName.set(client.sessionId, options.playerName);
         // Push the client's player name to the list of participants if it doesn't exist
         this.state.activeParticipants.push(options.playerName);
-        console.log(this.state.activeParticipants);
         
         this.clock.setTimeout(() => {
             this.adminMessage(`${options.playerName} has joined the chat.`);

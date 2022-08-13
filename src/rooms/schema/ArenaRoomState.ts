@@ -23,13 +23,17 @@ export class HitboxDebug extends Schema {
   @type('boolean')
   isLethal: boolean = false;
 
-  constructor(id: string, x: number, y: number, width: number, height: number) {
+  @type('string')
+  type: string = '';
+
+  constructor(id: string, x: number, y: number, width: number, height: number, type: string) {
     super();
     this.id = id;
     this.x = x;
     this.y = y;
     this.width = width;
     this.height = height;
+    this.type = type;
   }
 }
 
@@ -132,6 +136,9 @@ export class Player extends Schema {
 
   @type('number')
   velX: number = 0;
+
+  @type('number')
+  velY: number = 0;
 
   @type('boolean')
   isDead: boolean = false;
