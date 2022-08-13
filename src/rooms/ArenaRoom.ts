@@ -126,7 +126,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     direction: '',
     isRolling: false,
     willTurn: false,
-    isCrouching: false
+    isCrouching: false,
+    initialSpawnPointIndex: null
   };
   firstPlayerID: string = '';
   secondPlayerID: string = '';
@@ -1943,11 +1944,14 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     if (enemyID === '') {
       // We're alone in the room, pick random side of room_0
-      
-      const spawnPoint = spawnPoints[getRandomInt(0, spawnPoints.length - 1)];
+      const initialSpawnPointIndex = getRandomInt(0, spawnPoints.length - 1);
+      const spawnPoint = spawnPoints[initialSpawnPointIndex];
       console.log(spawnPoints);
       spawnX = spawnPoint.x;
       spawnY = spawnPoint.y;
+
+      // Store the spawnPoint index that was selected for player 1, so we can make sure player 2 doesn't spawn in the same location
+      this.playerData[client.sessionId].initialSpawnPointIndex = initialSpawnPointIndex;
 
       this.firstPlayerID = client.sessionId;
 
@@ -1962,8 +1966,16 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       const enemyBody = this.physicsBodies[enemyID];
       // If the first player's win room is on the RIGHT side, he spawned on the LEFT
       // so, spawn on the RIGHT side (aka LEFT side win room)
-      const spawnPoint = (this.playerWinRooms[this.firstPlayerID] == 'room_R6'
-        ? spawnPoints[1] : spawnPoints[0]);
+      let spawnPointIndex = null;
+      const enemySpawnPointIndex = this.playerData[enemyID].initialSpawnPointIndex;
+
+      // Keep randomizing a spawn point until we have one different than the enemy
+      do {
+        spawnPointIndex = getRandomInt(0, spawnPoints.length - 1);
+      }
+      while (spawnPointIndex === enemySpawnPointIndex);
+
+      const spawnPoint = spawnPoints[spawnPointIndex];
       spawnX = spawnPoint.x;
       spawnY = spawnPoint.y;
 
