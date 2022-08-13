@@ -1185,6 +1185,27 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.watchForRespawnsAndWin();
     this.updatePlayerStates();
     this.watchForFalls();
+    this.restartIfBothPlayersAreDead();
+  }
+
+  restartIfBothPlayersAreDead() {
+    let bothPlayersAreDead = true;
+    
+    this.state.players.forEach((player) => {
+      if (!player.isDead) {
+        bothPlayersAreDead = false;
+      }
+    });
+
+    if (bothPlayersAreDead) {
+      this.state.players.forEach((player) => {
+        const {initialSpawnPointIndex} = this.playerData[player.id];
+        const spawnPoints = MAP_DATA.spawn_points.filter((room) => room.room === 'room_0');
+        const spawnPoint = spawnPoints[initialSpawnPointIndex];
+
+        this.respawn(player.id, spawnPoint.x, spawnPoint.y);
+      });
+    }
   }
 
   watchForFalls() {
@@ -1974,6 +1995,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         spawnPointIndex = getRandomInt(0, spawnPoints.length - 1);
       }
       while (spawnPointIndex === enemySpawnPointIndex);
+
+      // Store this for later as well, as it's used to revive both players when dead at the same time
+      this.playerData[client.sessionId].initialSpawnPointIndex = spawnPointIndex;
 
       const spawnPoint = spawnPoints[spawnPointIndex];
       spawnX = spawnPoint.x;
