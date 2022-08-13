@@ -1679,18 +1679,33 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         const swordIsOwnedByPlayer = (sword.attachedTo === player.id);
         const {isJumpKicking, isRolling} = this.playerData[player.id];
 
-        if (!swordIsOwnedByPlayer && !isJumpKicking && !isRolling) {
+        if (!swordIsOwnedByPlayer && !isJumpKicking) {
           const enemyID = this.getOtherPlayerID(player.id);
 
           if (enemyID !== '') {
+            const swordIsThrown = (swordBody.velocity.x !== 0);
+            const enemy = this.state.players.get(enemyID);
             const swordIsOwnedByEnemy = (sword.attachedTo === enemyID);
             const swordIsHot = (swordIsOwnedByEnemy || swordBody.velocity.x !== 0);
+
+            if (isRolling) {
+              if (
+                swordIsThrown ||
+                (swordIsOwnedByEnemy && enemy.level === 'high')
+              ) {
+                return;
+              }
+            }
       
             if (swordIsHot) {
               if (player.animPrefix === 'sword') {
                 this.disarmPlayer(player.id, 'up');
               }
               this.killPlayer(player.id);
+
+              // Cancel roll
+              player.isInputLocked = false;
+              this.playerData[player.id].isRolling = false;
             }
           }
         }
