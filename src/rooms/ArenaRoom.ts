@@ -1035,10 +1035,32 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             client.send('player-jump', { messageID, playerID: client.sessionId });
           }
 
-          // If player is running full tilt, on the ground, and they press down...
-          if (down && isGrounded && Math.abs(player.velX) >= MAX_SPEED) {
-            // Execute a roll
-            this.doRoll(client.sessionId);
+          // Handle rolling and crouching
+          if (down && isGrounded) {
+            // If running and down is pressed, roll
+            if (!isCrouching && Math.abs(player.velX) >= MAX_SPEED) {
+              this.doRoll(client.sessionId);
+            }
+            // If standing still, sword in low level, and down is pressed, crouch
+            else if (!isCrouching && player.velX === 0 && player.level === 'low') {
+              this.playerData[client.sessionId].isCrouching = true;
+              player.anim = `${player.animPrefix}-crouch-idle`;
+
+              this.broadcast('player-crouch', {
+                playerID: client.sessionId,
+                isCrouching: true
+              });
+            }
+          }
+          // If down is released, and they're crouching, stand back up
+          else if (!down && isCrouching) {
+            this.playerData[client.sessionId].isCrouching = false;
+            player.anim = `${player.animPrefix}-idle-low`;
+
+            this.broadcast('player-crouch', {
+              playerID: client.sessionId,
+              isCrouching: false
+            });
           }
 
           // Pickup sword
@@ -1269,6 +1291,13 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.watchForFalls();
     this.checkPlayerRespawnTimers(deltaTime);
     this.checkObjectLives(deltaTime);
+
+    // Debugging animations
+    const player = this.state.players.get(this.firstPlayerID);
+    
+    if (typeof player !== 'undefined') {
+      console.log(player.anim);
+    }
   }
 
   checkPlayerRespawnTimers(d: number) {
@@ -1574,15 +1603,31 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           // If player still in jumping state and touches ground, take him out
           if(player.isJumping) {
             player.isJumping = false;
-            player.anim = (hasSword ? `sword-idle-${player.level}` : 'nosword-idle');
+
+            if (pData.isCrouching) {
+              player.anim = `${player.animPrefix}-crouch-idle`;
+            }
+            else {
+              player.anim = (hasSword ? `sword-idle-${player.level}` : 'nosword-idle');
+            }
           // If the player is on the ground, not giving input, isn't actively rolling or jumpkicking, but is moving still, stop him.
           } else if (!pData.hasInput && Math.abs(player.velX) > 0 && !pData.isRolling && !pData.isJumpKicking) {
             player.velX = 0;
             body.setVelocityX(0);
-            player.anim = (hasSword ? `sword-idle-${player.level}` : 'nosword-idle');
+            if (pData.isCrouching) {
+              player.anim = `${player.animPrefix}-crouch-idle`;
+            }
+            else {
+              player.anim = (hasSword ? `sword-idle-${player.level}` : 'nosword-idle');
+            }
           // If the player is on the ground and not moving, set him to idle anim
           } else if (Math.abs(player.velX) < 10) {
-            player.anim = (hasSword ? `sword-idle-${player.level}` : 'nosword-idle');
+            if (pData.isCrouching) {
+              player.anim = `${player.animPrefix}-crouch-idle`;
+            }
+            else {
+              player.anim = (hasSword ? `sword-idle-${player.level}` : 'nosword-idle');
+            }
           }
 
           // @todo Needs to change when jumping hitbox is implemented
