@@ -1309,6 +1309,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         }
       }
     }
+    
 
     // Add collision detection in onJoin
 
@@ -1330,11 +1331,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.checkObjectLives(deltaTime);
 
     // Debugging animations
-    const player = this.state.players.get(this.firstPlayerID);
+    // const player = this.state.players.get(this.firstPlayerID);
     
-    if (typeof player !== 'undefined') {
-      console.log(player.anim);
-    }
+    // if (typeof player !== 'undefined') {
+    //   console.log(player.anim);
+    // }
   }
 
   checkPlayerRespawnTimers(d: number) {
@@ -1347,8 +1348,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         if(newVal <= 0) {
           const player = this.state.players.get(keys[i]);
           const spawnPoint = this.getNextPlayerSpawnPoint(player);
-          console.log(`Spawning ${player.playerName} in "${spawnPoint.room}" at X:${spawnPoint.x}, Y:${spawnPoint.y}`)
-          this.respawn(keys[i], spawnPoint.x, spawnPoint.y);
+          // Retry if spawn point glitch
+          if(typeof spawnPoint.x !== undefined)
+            this.respawn(keys[i], spawnPoint.x, spawnPoint.y);
         }
       }
     }
@@ -2309,21 +2311,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     );
 
     if (enemyID !== '') {
-      // Broadcast rooms to both players
-      this.broadcast('player-data', {
-        playerOne: {
-          name: this.state.players.get(this.firstPlayerID).playerName,
-          id: this.firstPlayerID,
-          room: this.playerWinRooms[this.firstPlayerID]
-        },
-        playerTwo: 
-        {
-          name: this.state.players.get(this.secondPlayerID).playerName,
-          id: this.secondPlayerID,
-          room: this.playerWinRooms[this.secondPlayerID]
-        },
-      });
-
       const enemyBody = this.physicsBodies[enemyID];
       
       // If both players have spawned, register sword overlaps
@@ -2415,7 +2402,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           this.clock.setTimeout(() => {
             // Reset input lock
             playerA.isInputLocked = false;
-            playerB.isInputLocked = false;
             // Reset kicked status
             player.isKicked = false;
             enemy.isKicked = false
@@ -2431,6 +2417,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         //   }
         // }
       });
+
+      // Create win room Objs
+      // var winRoomObjs = [
+      //   this.createPhysicsBody('winObj0', MAP_DATA.win_objects[0].x, MAP_DATA.win_objects[0].y, 50, 50, ''),
+      //   this.createPhysicsBody('winObj1', MAP_DATA.win_objects[1].x, MAP_DATA.win_objects[1].y, 50, 50, ''),
+      // ];
+
+      // this.physics.add.collider(winRoomObjs, this.physicsMap);
+    
     }
   }
 
@@ -2462,10 +2457,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   }
 
   declareWinner(playerID: string, winnerByDefault: boolean = false) {
-    this.gameOver = true;
+    this.gameOver = true;1418
     const winningPlayer = this.state.players.get(playerID);
 
     this.broadcast('game-over', {
+      winnerID: playerID,
       winnerName: winningPlayer.playerName,
       winnerByDefault
     });
