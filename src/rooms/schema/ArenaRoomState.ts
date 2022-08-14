@@ -159,6 +159,9 @@ export class Player extends Schema {
   isInputLocked: boolean = false;
 
   @type('boolean')
+  hasSword: boolean = true;
+
+  @type('boolean')
   isAttacking: boolean = false;
 
   @type('boolean')
