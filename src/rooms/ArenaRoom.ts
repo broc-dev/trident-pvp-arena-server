@@ -19,6 +19,11 @@ const PLAYER_BODY = {
   originY: 1
 };
 
+const PUNCH_KICK_BODY = {
+  width: 30,
+  height: 40
+};
+
 const PLAYER_BODY_CROUCH_HEIGHT_MODIFIER = 0.4;
 
 const OBJECT_BODIES: Record<string, any> = {
@@ -32,18 +37,6 @@ const OBJECT_BODIES: Record<string, any> = {
     width: 6,
     height: 3,
     originX: 1,
-    originY: 0.5
-  },
-  'fist': {
-    width: 4,
-    height: 5,
-    originX: 0.5,
-    originY: 0.5
-  },
-  'foot': {
-    width: 10,
-    height: 5,
-    originX: 0.5,
     originY: 0.5
   }
 };
@@ -616,19 +609,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     return this.physicsBodies[id];
   }
 
-  getPlayerFist(sessionId: string): Body {
-    return this.physicsBodies[`fist_${sessionId}`];
-  }
-
-  getPlayerFoot(sessionId: string): Body {
-    return this.physicsBodies[`foot_${sessionId}`];
-  }
-
   getOtherPlayerID(sessionId: string): string {
     let otherPlayerID = '';
 
     Object.keys(this.physicsBodies).forEach((key) => {
-      if (!key.startsWith('sword_') && !key.startsWith('tip_') && !key.startsWith('fist_') && !key.startsWith('foot_') && key !== sessionId) {
+      if (!key.startsWith('sword_') && !key.startsWith('tip_')  && !key.startsWith('punchkick_') && key !== sessionId) {
         otherPlayerID = key;
       }
     });
@@ -765,6 +750,22 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         let frame = 0;
         const hitboxShiftInterval = this.clock.setInterval(() => {
           player.xPunchOffset = PUNCH_ATTACK_FRAME_XOFFSETS[frame];
+
+          const armIsExtended = ([5, 6].includes(frame));
+
+          if (armIsExtended) {
+            const enemyID = this.getOtherPlayerID(playerID);
+            const enemyBody = this.physicsBodies[enemyID];
+            const playerPunchKickBox = this.physicsBodies[`punchkick_${playerID}`];
+            const { isFallenDown: enemyIsFallenDown } = this.playerData[enemyID];
+            // Check overlap per frame
+
+            if (!enemyIsFallenDown && this.physics.overlap(playerPunchKickBox, enemyBody, null, null, this)) {
+              this.disarmPlayer(enemyID, 'up');
+              this.playerFallDown(enemyID);
+            }
+          }
+
           frame++;
         }, MS_PER_FRAME);
     
@@ -1448,7 +1449,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   }
 
   /**
-   * This method moves attached "attack" boxes (like swords or fists) of players.
+   * This method moves attached "attack" boxes (like swords) of players.
    */
   moveAttackBoxes() {
     this.state.players.forEach((player, playerID) => {
@@ -1522,20 +1523,19 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           }
         }
       }
-      else {
-        const fistBody = this.getPlayerFist(playerID);
-        const bodyOffsetX = ((20 + player.xPunchOffset) * flipMod);
 
-        fistBody.x = playerX + bodyOffsetX;
-        fistBody.y = playerY - 32;
-      }
+      const playerPunchKickBox = this.physicsBodies[`punchkick_${player.id}`];
       
-      // Move foot
-      const {isCrouching} = this.playerData[playerID];
-      const footBody = this.getPlayerFoot(playerID);
-      const footBodyOffsetX = ((30 + player.xFootOffset) * flipMod);
-      footBody.x = playerX + footBodyOffsetX;
-      footBody.y = playerY - (isCrouching ? (5 + PLAYER_BODY.height * (1 - PLAYER_BODY_CROUCH_HEIGHT_MODIFIER)) : 5);
+      playerPunchKickBox.x = playerBody.x;
+
+      if (player.flipX) {
+        playerPunchKickBox.x -= PUNCH_KICK_BODY.width;
+      }
+      else {
+        playerPunchKickBox.x += PLAYER_BODY.width;
+      }
+
+      playerPunchKickBox.y = playerBody.y;
     });
   }
 
@@ -1819,56 +1819,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.physicsBodies[swordTipID].setAllowGravity(false);
 
     this.state.players.get(playerID).hasSword = true;
-  }
-
-  initFootOverlaps(footID: string) {
-    const playerID = footID.replace('foot_', '');
-    const enemyID = this.getOtherPlayerID(playerID);
-
-    if (enemyID !== '') {
-      const player = this.state.players.get(playerID);
-      const footBody = this.physicsBodies[footID];
-      const enemyBody = this.physicsBodies[enemyID];
-
-      console.log('adding overlap', footID, enemyID);
-      
-      // Player foot vs enemy body collision
-      this.physics.add.overlap(footBody, enemyBody, () => {
-        const {isAttacking} = player;
-
-        console.log('is overlapping', isAttacking);
-
-        if (isAttacking) {
-          // Knock down enemy and disarm?
-          console.log("KICKED!");
-        }
-      });
-    }
-  }
-  initFistOverlaps(fistID: string) {
-    const playerID = fistID.replace('fist_', '');
-    const enemyID = this.getOtherPlayerID(playerID);
-
-    if (enemyID !== '') {
-      const player = this.state.players.get(playerID);
-      const fistBody = this.physicsBodies[fistID];
-      const enemyBody = this.physicsBodies[enemyID];
-
-      console.log('adding overlap', fistID, enemyID);
-      
-      // Player fist vs enemy body collision
-      this.physics.add.overlap(fistBody, enemyBody, () => {
-        const hasSword = (player.animPrefix === 'sword');
-        const {isAttacking} = player;
-
-        console.log('is overlapping', hasSword, isAttacking);
-
-        if (!hasSword && isAttacking) {
-          // Knock down enemy and disarm?
-          console.log("PUNCHED!");
-        }
-      });
-    }
   }
 
   initSwordOverlaps(swordID: string) {
@@ -2253,23 +2203,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     playerBody.setDragX(225);
 
-    this.createPhysicsBody(
-      `fist_${client.sessionId}`,
+    const playerPunchKickBox = this.createPhysicsBody(
+      `punchkick_${client.sessionId}`,
       spawnX,
       spawnY,
-      OBJECT_BODIES['fist'].width,
-      OBJECT_BODIES['fist'].height,
-      'fist'
+      PUNCH_KICK_BODY.width,
+      PUNCH_KICK_BODY.height,
+      'attack_box'
     );
-
-    this.createPhysicsBody(
-      `foot_${client.sessionId}`,
-      spawnX,
-      spawnY,
-      OBJECT_BODIES['foot'].width,
-      OBJECT_BODIES['foot'].height,
-      'foot'
-    );
+    playerPunchKickBox.setAllowGravity(false);
 
     this.givePlayerSword(client.sessionId);
 
@@ -2303,19 +2245,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
         if (isSword) {
           this.initSwordOverlaps(object.id);
-        }
-      });
-
-      // Register fist overlaps
-      Object.keys(this.physicsBodies).forEach((bodyID) => {
-        const isFist = (bodyID.startsWith('fist_'));
-        const isFoot = (bodyID.startsWith('foot_'));
-
-        if (isFist) {
-          this.initFistOverlaps(bodyID);
-        }
-        else if (isFoot) {
-          this.initFootOverlaps(bodyID);
         }
       });
 
