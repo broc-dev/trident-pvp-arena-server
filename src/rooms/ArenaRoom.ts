@@ -64,13 +64,13 @@ const SWORD_ATTACK_FRAME_XOFFSETS: Array<number> = [
 
 const PUNCH_ATTACK_FRAME_XOFFSETS: Array<number> = [
   // 0,
-  5,
-  7,
-  15,
   22,
-  10,
+  19,
+  9,
+  7,
   5,
-  8,
+  3,
+  0,
 ];
 
 const FPS = 60;
@@ -574,11 +574,17 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
   /**
    * Sanitizes an input string to be used as a player name
+   * Player names cannot have special characters other than _ or $.
+   * Player names cannot be > 14 characters
    * @param input Player name to sanitize
    * @returns Sanitized player name
    */
   sanitize(input: string): string {
-    return input.replace(/[^a-zA-Z0-9_$]/g, '');
+    var output = input.replace(/[^a-zA-Z0-9_$]/g, '');
+    if(output.length > 14) {
+      output = output.substring(0, 14);
+    }
+    return output;
   }
   
   LOGTYPES = {
@@ -857,7 +863,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           
           if (areSwordsTouching) {
             this.disarmPlayer(enemyID, direction);
-            this.broadcast('player-disarm', );
+            this.broadcast('player-disarm', enemyID);
             this.broadcast('camera-flash');
           }
         }
@@ -947,7 +953,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           swordBody[1].setVelocityX((sword[1].flipX ? -1 : 1) * THROW_VELOCITY);
 
           this.swordLifespans.set(sword[0].id, 15000); // Begin sword lifespan (15 seconds)
-  
+          
+          this.state.players.get(client.sessionId).hasSword = false;
           // Set animPrefix to nosword (done in anim code below)
         }
         else if (isGrounded && doAttack) {
@@ -1058,6 +1065,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
                     swordBody.setAllowGravity(false);
                     swordTipBody.setAllowGravity(false);
                     player.animPrefix = 'sword';
+
+                    player.hasSword = true;
                   }
                 }
               }
@@ -1658,12 +1667,17 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     const enemy = this.state.players.get(enemyPlayerID);
     // If the other player is alive, and was the last killer, determine which room to spawn in
     if(!enemy.isDead && this.lastKillerID == enemyPlayerID) {
-      const direction = this.playerWinRooms[enemyPlayerID] == 'room_R6' ? 1 : -2;
+      const direction = this.playerWinRooms[enemyPlayerID] == 'room_R6' ? 2 : -3;
       // Find the spawn point directly after current enemy player position
       for (var i = 0; i < spawnPointsInOrder.length; i++) {
         if(spawnPointsInOrder.at(i).x > enemy.x) {
           // Get spawnpoint in correct direction
-          playerSpawnPoint = spawnPointsInOrder.at(i + direction);
+          // If the next spawnpoint is too close, chose further away one
+          if(Math.abs(spawnPointsInOrder.at(i + direction).x - enemy.x) < 100) {
+            playerSpawnPoint = spawnPointsInOrder.at(i + (2 * direction));
+          } else {
+            playerSpawnPoint = spawnPointsInOrder.at(i + direction);
+          }
           break
           // @todo Make sure players don't spawn within 600 squares of each other
         }
@@ -1672,7 +1686,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     } else {
       const midPoint = (MAP_DATA.width * MAP_DATA.tile_width) / 2;
       // If enemy is furthest from the map midPoint, set spawn in room to block them
-      const direction = (Math.abs(midPoint - player.x) > Math.abs(midPoint - enemy.x)) ? 1 : -2;
+      const direction = (Math.abs(midPoint - player.x) > Math.abs(midPoint - enemy.x)) ? 2 : -3;
       // Find the spawn point directly after current enemy player position
       for (var i = 0; i < spawnPointsInOrder.length; i++) {
         if(spawnPointsInOrder.at(i).x > enemy.x) {
@@ -1803,6 +1817,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // Disable gravity on the sword body
     this.physicsBodies[swordID].setAllowGravity(false);
     this.physicsBodies[swordTipID].setAllowGravity(false);
+
+    this.state.players.get(playerID).hasSword = true;
   }
 
   initFootOverlaps(footID: string) {
@@ -1911,8 +1927,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             }
       
             if (swordIsHot) {
-              // Sword tip kills player
-              this.killPlayer(player.id);
+              // Sword tip kills player, unless fallen
+              if(!this.playerData[player.id].isFallenDown) {
+                this.killPlayer(player.id);
+              }
 
               // Cancel roll
               player.isInputLocked = false;
@@ -2019,7 +2037,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // @todo change player animation to fall
     // Set player immobilized for 1.5-2.5 seconds. Animation will 
     // const duration = 1500 + (Math.random() * 1000);
-    const duration = 2000;
+    const duration = 4000;
 
     this.broadcast('player-fall-down', playerID);
 
@@ -2090,6 +2108,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   
       // Add collider w/ map so sword will land
       this.physics.add.collider(swordBody, this.physicsMap);
+
+      this.state.players.get(playerID).hasSword = false;
     }
   }
 
