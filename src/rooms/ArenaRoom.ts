@@ -649,7 +649,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
       // Alert clients that player has been killed
       this.broadcast('player-killed', {
-        playerID: playerID
+        playerID: playerID,
+        isLaying: this.playerData[playerID].isFallenDown,
       });
 
       // Respawn player in 3 seconds
@@ -691,6 +692,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
     player.isInputLocked = true;
     this.playerData[playerID].isRolling = true;
+    this.state.players.get(playerID).isRolling = true;
 
     const dir = (player.flipX ? -1 : 1);
 
@@ -699,11 +701,14 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.clock.setTimeout(() => {
       player.isInputLocked = false;
       this.playerData[playerID].isRolling = false;
+      this.state.players.get(playerID).isRolling = false;
     }, MS_PER_FRAME * ROLL_NUM_FRAMES);
   }
 
   doAttack(playerID: string) {
     const player = this.state.players.get(playerID);
+    const playerBody = this.physicsBodies[playerID];
+    const enemyID = this.getOtherPlayerID(playerID);
     const hasSword = (player.animPrefix === 'sword');
     const {isCrouching} = this.playerData[playerID];
 
@@ -884,7 +889,6 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           break;
         }
       }
-
       
       const playerBody = this.physicsBodies[client.sessionId];
       const player = this.state.players.get(client.sessionId);
@@ -959,17 +963,32 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           // Set animPrefix to nosword (done in anim code below)
         }
         else if (isGrounded && doAttack) {
-          this.broadcast('player-attack', {
-            playerID: client.sessionId,
-            hasSword,
-            level: player.level,
-            isCrouching
-          });
+          // Do curbstomp
+          if(this.physics.overlap(playerBody, this.physicsBodies[enemyID], null, null, this) && this.playerData[enemyID].isFallenDown) {
+            console.log("Curbstomp!");
+            player.velX = 0;
+            playerBody.setVelocityX(0);
+            this.playerData[client.sessionId].isAttacking = true;
+            
+            this.broadcast('player-curbstomp', { playerID: client.sessionId });
+            this.killPlayer(enemyID);
 
-          player.velX = 0;
-          playerBody.setVelocityX(0);
-
-          this.doAttack(client.sessionId);
+            this.clock.setTimeout(() => {
+              this.playerData[client.sessionId].isAttacking = false;
+            }, 500);
+          } else {
+            this.broadcast('player-attack', {
+              playerID: client.sessionId,
+              hasSword,
+              level: player.level,
+              isCrouching
+            });
+  
+            player.velX = 0;
+            playerBody.setVelocityX(0);
+  
+            this.doAttack(client.sessionId);
+          }
         }
         else if (!isGrounded && doAttack && !isJumpKicking) {
           this.doJumpKick(client.sessionId);
@@ -1219,6 +1238,24 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         var msg: any[] = [`====== HITBOXES ======`];
         this.state.objects.forEach((object) => {
           msg.push(`[${counter}] ${object.id} - X: ${object.x}, Y: ${object.y}`);
+          counter++;
+        });
+        client.send('server-message', msg);
+      }
+      else if(command == 'colliders') {
+        var msg: any[] = [`====== COLLIDERS ======`];
+        var counter = 1;
+        this.physics.world.colliders.getActive().forEach((collider) => {
+          msg.push(`[${counter}] ${collider.name} ${collider.active}`);
+          counter++;
+        });
+        client.send('server-message', msg);
+      }
+      else if(command == 'pbodies') {
+        var msg: any[] = [`====== PHYSICS BODIES ======`];
+        var counter = 1;
+        Object.keys(this.physicsBodies).forEach((key) => {
+          msg.push(`[${counter}] ${key} - X: ${this.physicsBodies[key].x}, Y: ${this.physicsBodies[key].y}`);
           counter++;
         });
         client.send('server-message', msg);
@@ -1610,6 +1647,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             else {
               player.anim = (hasSword ? `sword-idle-${player.level}` : 'nosword-idle');
             }
+
+            player.isGrounded = true;
           // If the player is on the ground, not giving input, isn't actively rolling or jumpkicking, but is moving still, stop him.
           } else if (!pData.hasInput && Math.abs(player.velX) > 0 && !pData.isRolling && !pData.isJumpKicking) {
             player.velX = 0;
@@ -1635,6 +1674,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           // body.y -= 19;
 
           body.setOffset(0, 0);
+        } else if (!body.touching.down){
+          player.isGrounded = false;
         }
         
         player.x = (body.x + (PLAYER_BODY.width * PLAYER_BODY.originX));
@@ -2032,18 +2073,19 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // @todo change player animation to fall
     // Set player immobilized for 1.5-2.5 seconds. Animation will 
     // const duration = 1500 + (Math.random() * 1000);
-    const duration = 4000;
 
     this.broadcast('player-fall-down', playerID);
 
+    this.state.players.get(playerID).isInputLocked = true;
     this.playerData[playerID].isInputLocked = true;
     this.playerData[playerID].isFallenDown = true;
 
     this.clock.setTimeout(() => {
+      this.state.players.get(playerID).isInputLocked = false;
       this.playerData[playerID].isInputLocked = false;
       this.playerData[playerID].isFallenDown = false;
       this.playerData[playerID].isKicked = false;
-    }, duration)
+    }, 4000)
   }
 
   /**
@@ -2379,6 +2421,15 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             enemy.isKicked = false
           }, KICK_BOUNCEBACK_DELAY);
         }
+        // @todo Pls fix
+        // // If a player jumps onto another player, they fall down
+        // } else if(!playerIsJumpKicking && !enemyIsJumpKicking && !player.isDead && !enemy.isDead && !player.isKicked && !enemy.isKicked) {
+        //   // If Enemy jumps on Player's head, knock down player
+        //   if(playerBody.touching.up && enemyBody.touching.down) {
+        //     this.disarmPlayer(player.id, 'up');
+        //     this.playerFallDown(player.id);
+        //   }
+        // }
       });
     }
   }

@@ -146,6 +146,12 @@ export class Player extends Schema {
   @type('boolean')
   isJumping: boolean = false;
 
+  @type('boolean')
+  isRolling: boolean = false;
+
+  @type('boolean')
+  isGrounded: boolean = true;
+
   @type('number')
   xSwordOffset: number = 0;
 
