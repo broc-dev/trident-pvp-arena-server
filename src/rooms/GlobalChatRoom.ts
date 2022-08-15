@@ -7,6 +7,13 @@ import { ChatRoomState, Message } from "./schema/ChatRoomState";
  * 
  * When the Global Chat Room is initialized, it should pull previous chat history from the database.
  * Players should get a copy of chat history when they join the room.
+ * 
+ * FEATURES TO ADD:
+ * @todo - Add a way to delete chats
+ * @todo - Add authentication
+ * @todo - Add a way to search chats (by username, message, etc., probably from Firestore)
+ * @todo - Add a way to search for players (by username, etc., probably from Firestore)
+ * @todo - Firestore integration
  */
 export class GlobalChatRoom extends Room<ChatRoomState> {
 

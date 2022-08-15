@@ -38,6 +38,12 @@ const OBJECT_BODIES: Record<string, any> = {
     height: 3,
     originX: 1,
     originY: 0.5
+  },
+  'win-obj': {
+    width: 50,
+    height: 50,
+    originX: 0.5,
+    originY: 1,
   }
 };
 
@@ -112,6 +118,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   physicsMap: Array<StaticBody> = [];
   playerRooms: Record<string, string> = {};
   playerWinRooms: Record<string, string> = {};
+  winRoomObjs: Body[] = [];
   killCounts: Record<string, number> = {}; // ID => Count
   lastKillerID: string = '';
   playerData: Record<string, Record<string, any>> = {}; // ID => Item => Value
@@ -613,7 +620,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     let otherPlayerID = '';
 
     Object.keys(this.physicsBodies).forEach((key) => {
-      if (!key.startsWith('sword_') && !key.startsWith('tip_')  && !key.startsWith('punchkick_') && key !== sessionId) {
+      if (!key.startsWith('sword_') && !key.startsWith('tip_')  && !key.startsWith('punchkick_') && !key.startsWith('winObj') && key !== sessionId) {
         otherPlayerID = key;
       }
     });
@@ -683,6 +690,12 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     playerBody.setVelocity(kickVelX, kickVelY);
 
     this.broadcast('player-jumpkick', playerID);
+
+    this.clock.setTimeout(() => {
+      if(this.playerData[playerID].isJumpKicking) {
+        this.playerData[playerID].isJumpKicking = false;
+      }
+    }, 5000);
   }
 
   doRoll(playerID: string) {
@@ -796,7 +809,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     this.physicsBodies[playerID].setSize(PLAYER_BODY.width, PLAYER_BODY.height * PLAYER_BODY_CROUCH_HEIGHT_MODIFIER);
   }
 
-  onCreate (options: any) {
+  onCreate(options: any) {
     this.setState(new ArenaRoomState());
 
     // @todo Create new Current Game chat room. Add players to it as they join
@@ -965,9 +978,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         else if (isGrounded && doAttack) {
           // Do curbstomp
           if(this.physics.overlap(playerBody, this.physicsBodies[enemyID], null, null, this) && this.playerData[enemyID].isFallenDown) {
-            console.log("Curbstomp!");
             player.velX = 0;
             playerBody.setVelocityX(0);
+            player.isInputLocked = true;
             this.playerData[client.sessionId].isAttacking = true;
             
             this.broadcast('player-curbstomp', { playerID: client.sessionId });
@@ -975,7 +988,14 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
             this.clock.setTimeout(() => {
               this.playerData[client.sessionId].isAttacking = false;
-            }, 500);
+              player.isInputLocked = false;
+            }, 650);
+          // Trigger win
+          // If player attacks on grave, is in win room, and is last killer, he wins.
+          } else if(this.physics.overlap(playerBody, this.winRoomObjs, null, null, this)
+          && this.lastKillerID == player.id && this.getCurrentRoom(player.id) == this.playerWinRooms[player.id]) {
+            this.broadcast('player-curbstomp', { playerID: client.sessionId });
+            this.declareWinner(player.id, false);
           } else {
             this.broadcast('player-attack', {
               playerID: client.sessionId,
@@ -1260,6 +1280,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         });
         client.send('server-message', msg);
       }
+      else if(command == 'win') {
+        this.declareWinner(client.sessionId, false);
+      }
     })
 
     // Init arcade physics
@@ -1349,7 +1372,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           const player = this.state.players.get(keys[i]);
           const spawnPoint = this.getNextPlayerSpawnPoint(player);
           // Retry if spawn point glitch
-          if(typeof spawnPoint.x !== undefined)
+          if(typeof spawnPoint != undefined)
             this.respawn(keys[i], spawnPoint.x, spawnPoint.y);
         }
       }
@@ -1407,6 +1430,21 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     });
   }
 
+  getCurrentRoom(playerID: string) {
+    const {x} = this.state.players.get(playerID);
+
+    let currentRoomName = '';
+  
+    MAP_DATA.rooms.forEach((r) => {
+      const {x: rx, width} = r;
+      if (x >= rx && x <= rx + width) {
+        currentRoomName = r.name;
+      }
+    });
+
+    return currentRoomName;
+  }
+
   watchForRespawnsAndWin() {
     // If player or enemy are dead, watch for the other to change rooms
     // When the room changes, find spawn point IN room, BUT furthest from player who entered
@@ -1420,14 +1458,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         enemy = this.state.players.get(enemyID);
       }
 
-      let currentRoomName = '';
-  
-      MAP_DATA.rooms.forEach((r) => {
-        const {x: rx, width} = r;
-        if (x >= rx && x <= rx + width) {
-          currentRoomName = r.name;
-        }
-      });
+      let currentRoomName = this.getCurrentRoom(player.id);
 
       const playerHasChangedRooms = (currentRoomName !== this.playerRooms[player.id]);
       const doRespawnEnemy = (
@@ -1469,10 +1500,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       if (playerHasChangedRooms) {
         // Check if any players need to be respawned on player room change. Both players must be alive, otherwise handled above
         // Strip characters from player room name, then compare (e.g. room_L6 > room_L5)
-        // @todo remove logging 
-        console.warn(`Player ${this.getPlayerTag(player.id)} in room: ${currentRoomName.replace(/\D/g,'')}`)
-        enemy !== null && console.log(`Enemy ${this.getPlayerTag(enemyID)} in room: ${this.playerRooms[enemyID].replace(/\D/g,'')}`)
-
+        // @todo remove logging
         if (enemy && currentRoomName.replace(/\D/g,'') > this.playerRooms[enemyID].replace(/\D/g,'')
           && !['room_L6', 'room_R6'].includes(currentRoomName)
           && !player.isDead && !enemy.isDead
@@ -1487,13 +1515,13 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
         // @todo Remove when altar is implemented
         // If the player is the last killer and enters the win room, they win
-        if (currentRoomName === this.playerWinRooms[player.id] && this.lastKillerID == player.id) {
-          console.log(`${player.id} has entered the win room!`);
-          // Wait 3 seconds, then declare the winner
-          this.clock.setTimeout(() => {
-            this.declareWinner(player.id);
-          }, 3000);
-        }
+        // if (currentRoomName === this.playerWinRooms[player.id] && this.lastKillerID == player.id) {
+        //   console.log(`${player.id} has entered the win room!`);
+        //   // Wait 3 seconds, then declare the winner
+        //   this.clock.setTimeout(() => {
+        //     this.declareWinner(player.id);
+        //   }, 3000);
+        // }
       }
 
       // Update for next frame's watch
@@ -1700,6 +1728,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   respawn(playerID: string, x: number, y: number) {
     const player = this.state.players.get(playerID);
 
+    // Flip new spawned player to face the enemy
+    player.flipX = (this.state.players.get(this.getOtherPlayerID(playerID)).x > x) ? false : true;
+
     // Check for attached swords. If there is one, destroy it
     if(this.getAttachedSword(playerID)[0] !== null && this.getAttachedSword(playerID)[1] !== null) {
       this.deleteSword(this.getAttachedSword(playerID)[0].id);
@@ -1735,7 +1766,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     // After 1 second, player is no longer invincible
     this.clock.setTimeout(() => {
       this.playerData[playerID].isInvincible = false;
-    }, 1000);
+    }, 2000);
   }
 
   /**
@@ -1755,7 +1786,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     const enemy = this.state.players.get(enemyPlayerID);
     // If the other player is alive, and was the last killer, determine which room to spawn in
     if(!enemy.isDead && this.lastKillerID == enemyPlayerID) {
-      const direction = this.playerWinRooms[enemyPlayerID] == 'room_R6' ? 2 : -3;
+      var direction = this.playerWinRooms[enemyPlayerID] == 'room_R6' ? 2 : -3;
+      // If enemy is *in* win room, you need to spawn behind them.
+      if(this.getCurrentRoom(enemyPlayerID) == this.playerWinRooms[enemyPlayerID]) {
+        direction = -1 * (direction + 1); // Will be -3 if direction was 2, and 2 if direction was -3 (flipped)
+      }
       // Find the spawn point directly after current enemy player position
       for (var i = 0; i < spawnPointsInOrder.length; i++) {
         if(spawnPointsInOrder.at(i).x > enemy.x) {
@@ -2152,7 +2187,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
     }
   }
 
-  onJoin (client: Client, options: any) {
+  onJoin(client: Client, options: any) {
     console.log(client.sessionId, "joined as", options.playerName);
 
     var stateMachine = StateMachine.create({
@@ -2349,8 +2384,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
             enemy.isInputLocked = false;
           }, KICK_BOUNCEBACK_DELAY);
         }
-        else if ((playerIsJumpKicking && !enemy.isKicked && !enemy.isDead)
-          || (enemyIsJumpKicking && !player.isKicked && !player.isDead)) {
+        else if ((playerIsJumpKicking && !enemy.isFallenDown && !enemy.isDead)
+          || (enemyIsJumpKicking && !player.isFallenDown && !player.isDead)) {
           var playerA: Player;
           var playerB: Player;
           var playerAID: string;
@@ -2419,12 +2454,16 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       });
 
       // Create win room Objs
-      // var winRoomObjs = [
-      //   this.createPhysicsBody('winObj0', MAP_DATA.win_objects[0].x, MAP_DATA.win_objects[0].y, 50, 50, ''),
-      //   this.createPhysicsBody('winObj1', MAP_DATA.win_objects[1].x, MAP_DATA.win_objects[1].y, 50, 50, ''),
-      // ];
+      this.winRoomObjs = [
+        this.createPhysicsBody('winObj0', MAP_DATA.win_objects[0].x - 25, MAP_DATA.win_objects[0].y - 50, 50, 50, 'win-obj'),
+        this.createPhysicsBody('winObj1', MAP_DATA.win_objects[1].x - 25, MAP_DATA.win_objects[1].y - 50, 50, 50, 'win-obj'),
+      ];
 
-      // this.physics.add.collider(winRoomObjs, this.physicsMap);
+      this.state.objects.set('winObj0', new AbstractObject('winObj0', MAP_DATA.win_objects[0].x - 25, MAP_DATA.win_objects[0].y - 50, 50, 50, 0.5, 1, 'win-obj', ''));
+      this.state.objects.set('winObj1', new AbstractObject('winObj1', MAP_DATA.win_objects[1].x - 25, MAP_DATA.win_objects[1].y - 50, 50, 50, 0.5, 1, 'win-obj', ''));
+
+
+      this.physics.add.collider(this.winRoomObjs, this.physicsMap);
     
     }
   }

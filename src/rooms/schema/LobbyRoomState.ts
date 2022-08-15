@@ -55,4 +55,7 @@ export class LobbyRoomState extends Schema {
   @type({ map: OpenMatch })
   openMatches = new MapSchema<OpenMatch>();
 
+  @type('number')
+  onlinePlayers: number = 0;
+
 }
