@@ -8,6 +8,8 @@ import SingularityMap from "../maps/SingularityMap02";
 // @ts-ignore
 import {v4 as uuidv4} from 'uuid';
 
+import LobbyState from "./LobbyState";
+
 const DEBUG_ENABLED = true; // set to false in production build
 
 const MAP_DATA = SingularityMap;
@@ -2490,6 +2492,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
 
   onDispose() {
     console.log("Room", this.roomId, "disposing...");
+    delete LobbyState.matches[LobbyState.matches.indexOf(this.roomId)];
+    
     try {
       this.shutdownChat();
     } catch (e) {}

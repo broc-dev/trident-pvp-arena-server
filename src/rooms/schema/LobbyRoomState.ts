@@ -1,4 +1,5 @@
 import { Schema, MapSchema, ArraySchema, type } from "@colyseus/schema";
+import LobbyState from "../LobbyState";
 
 export class ConnectedPlayer extends Schema {
 
@@ -29,16 +30,28 @@ export class OpenMatch extends Schema {
   @type('number')
   maxPlayerCount: number = 0;
 
+  @type('number')
+  timestamp: number = 0;
+
+  @type('boolean')
+  locked: boolean = false;
+
+  @type('boolean')
+  started: boolean = false;
+
   @type({ map: ConnectedPlayer })
   connectedPlayers = new MapSchema<ConnectedPlayer>();
 
-  constructor(roomID: string, creatorName: string, gameMode: string) {
+  constructor(roomID: string, creatorName: string, gameMode: string, time: number) {
     super();
 
     this.roomID = roomID;
     this.creatorName = creatorName;
     this.gameMode = gameMode;
     this.playerCount = 1;
+    this.timestamp = time;
+
+    LobbyState.matches.push(roomID);
 
     if (gameMode === 'Fencing PvP') {
       this.maxPlayerCount = 2;
