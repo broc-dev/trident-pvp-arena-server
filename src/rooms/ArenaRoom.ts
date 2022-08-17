@@ -979,7 +979,9 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         }
         else if (isGrounded && doAttack) {
           // Do curbstomp
-          if(this.physics.overlap(playerBody, this.physicsBodies[enemyID], null, null, this) && this.playerData[enemyID].isFallenDown) {
+          if(Math.abs(this.physicsBodies[player.id].center.x - this.physicsBodies[enemyID].center.x) < 36
+            && this.playerData[enemyID].isFallenDown
+            && !this.state.players.get(enemyID).isDead) {
             player.velX = 0;
             playerBody.setVelocityX(0);
             player.isInputLocked = true;
@@ -1496,7 +1498,11 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       if (doRespawnEnemy) {
         // Respawn the dead player based on their enemy's win room and if the lastKiller is their enemy as well
         const spawnPoint = this.getNextPlayerSpawnPoint(enemy);
-        this.respawn(enemyID, spawnPoint.x, spawnPoint.y);
+        if(typeof spawnPoint != undefined) {
+          this.respawn(enemyID, spawnPoint.x, spawnPoint.y);
+        } else {
+          return;
+        }
       }
       // Various checks to make when player changes rooms
       if (playerHasChangedRooms) {
@@ -1798,13 +1804,19 @@ export class ArenaRoom extends Room<ArenaRoomState> {
         if(spawnPointsInOrder.at(i).x > enemy.x) {
           // Get spawnpoint in correct direction
           // If the next spawnpoint is too close, chose further away one
-          if(Math.abs(spawnPointsInOrder.at(i + direction).x - enemy.x) < 100) {
-            playerSpawnPoint = spawnPointsInOrder.at(i + (2 * direction));
-          } else {
-            playerSpawnPoint = spawnPointsInOrder.at(i + direction);
+          // Make sure that the index used is not out of bounds
+          if((i + direction) >= 0 && (i + direction) < spawnPointsInOrder.length && i + (2 * direction) < spawnPointsInOrder.length) {
+            if(Math.abs(spawnPointsInOrder.at(i + direction).x - enemy.x) < 100) {
+              playerSpawnPoint = spawnPointsInOrder.at(i + (2 * direction));
+            } else {
+              playerSpawnPoint = spawnPointsInOrder.at(i + direction);
+            }
+            break
+          } else if(i == spawnPointsInOrder.length - 1) {
+            playerSpawnPoint = spawnPointsInOrder.at(i - 1);
+          } else if(i == 0) {
+            playerSpawnPoint = spawnPointsInOrder.at(i + 1);
           }
-          break
-          // @todo Make sure players don't spawn within 600 squares of each other
         }
       }
       // If there's no last killer, guess which room to spawn in based on the player furthest from the map mid-point
@@ -2110,8 +2122,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   // Immobilized for 1.5 seconds
   playerFallDown(playerID: string) {
     // @todo change player animation to fall
-    // Set player immobilized for 1.5-2.5 seconds. Animation will 
-    // const duration = 1500 + (Math.random() * 1000);
+    // Set player immobilized for 2750ms
 
     this.broadcast('player-fall-down', playerID);
 
@@ -2124,7 +2135,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       this.playerData[playerID].isInputLocked = false;
       this.playerData[playerID].isFallenDown = false;
       this.playerData[playerID].isKicked = false;
-    }, 4000)
+    }, 2750)
   }
 
   /**
@@ -2493,7 +2504,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
   onDispose() {
     console.log("Room", this.roomId, "disposing...");
     delete LobbyState.matches[LobbyState.matches.indexOf(this.roomId)];
-    
+
     try {
       this.shutdownChat();
     } catch (e) {}

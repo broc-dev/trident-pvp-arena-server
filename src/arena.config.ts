@@ -27,7 +27,7 @@ export default Arena({
         // Lobby Room
         gameServer.define('lobby_room', LobbyRoom);
 
-        // gameServer.simulateLatency(200); // Uncomment to debug latency
+        // gameServer.simulateLatency(250); // Uncomment to debug latency
     },
 
     initializeExpress: (app) => {
