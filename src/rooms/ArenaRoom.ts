@@ -1376,7 +1376,7 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           const player = this.state.players.get(keys[i]);
           const spawnPoint = this.getNextPlayerSpawnPoint(player);
           // Retry if spawn point glitch
-          if(typeof spawnPoint != undefined)
+          if(typeof spawnPoint.x != undefined)
             this.respawn(keys[i], spawnPoint.x, spawnPoint.y);
         }
       }
@@ -1797,7 +1797,8 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       var direction = this.playerWinRooms[enemyPlayerID] == 'room_R6' ? 2 : -3;
       // If enemy is *in* win room, you need to spawn behind them.
       if(this.getCurrentRoom(enemyPlayerID) == this.playerWinRooms[enemyPlayerID]) {
-        direction = -1 * (direction + 1); // Will be -3 if direction was 2, and 2 if direction was -3 (flipped)
+        let dir = this.playerWinRooms[enemyPlayerID] == 'room_R6' ? spawnPointsInOrder.length - 1 : 0;
+        return spawnPointsInOrder[dir];
       }
       // Find the spawn point directly after current enemy player position
       for (var i = 0; i < spawnPointsInOrder.length; i++) {
@@ -1807,19 +1808,18 @@ export class ArenaRoom extends Room<ArenaRoomState> {
           // Make sure that the index used is not out of bounds
           if((i + direction) >= 0 && (i + direction) < spawnPointsInOrder.length && i + (2 * direction) < spawnPointsInOrder.length) {
             if(Math.abs(spawnPointsInOrder.at(i + direction).x - enemy.x) < 100) {
-              playerSpawnPoint = spawnPointsInOrder.at(i + (2 * direction));
+              return spawnPointsInOrder.at(i + (2 * direction));
             } else {
-              playerSpawnPoint = spawnPointsInOrder.at(i + direction);
+              return spawnPointsInOrder.at(i + direction);
             }
-            break
-          } else if(i == spawnPointsInOrder.length - 1) {
-            playerSpawnPoint = spawnPointsInOrder.at(i - 1);
-          } else if(i == 0) {
-            playerSpawnPoint = spawnPointsInOrder.at(i + 1);
+          } else {
+            return spawnPointsInOrder.at(i);
           }
         }
       }
-      // If there's no last killer, guess which room to spawn in based on the player furthest from the map mid-point
+      // If there's no spawnpoint found, the player is further than the last spawn
+      return spawnPointsInOrder[spawnPointsInOrder.length - 1];
+    // If there's no last killer, guess which room to spawn in based on the player furthest from the map mid-point
     } else {
       const midPoint = (MAP_DATA.width * MAP_DATA.tile_width) / 2;
       // If enemy is furthest from the map midPoint, set spawn in room to block them
@@ -1828,12 +1828,10 @@ export class ArenaRoom extends Room<ArenaRoomState> {
       for (var i = 0; i < spawnPointsInOrder.length; i++) {
         if(spawnPointsInOrder.at(i).x > enemy.x) {
           // Get spawnpoint in correct direction
-          playerSpawnPoint = spawnPointsInOrder.at(i + direction);
-          break
+          return spawnPointsInOrder.at(i + direction);
         }
       }
     }
-    return playerSpawnPoint;
   }
 
   getFurthestSpawnPointInRoom(roomName: string, targetX: number) {
